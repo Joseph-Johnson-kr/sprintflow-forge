@@ -1,0 +1,14 @@
+{
+  "name": "jira-backlog-action-custom-ui",
+  "version": "1.0.18",
+  "main": "index.js",
+  "license": "MIT",
+  "private": true,
+  "devDependencies": {
+    "eslint": "^8.56.0",
+    "eslint-plugin-react-hooks": "^4.6.0"
+  },
+  "dependencies": {
+    "@forge/resolver": "2.0.0"
+  }
+}

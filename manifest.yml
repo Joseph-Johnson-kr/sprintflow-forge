@@ -1,0 +1,20 @@
+﻿modules:
+  jira:backlogAction:
+    - key: sprintflow-backlog-action
+      resource: main
+      resolver:
+        function: resolver
+      viewportSize: medium
+      title: SprintFlow
+  function:
+    - key: resolver
+      handler: index.handler
+resources:
+  - key: main
+    path: static/sprintflow/build
+    tunnel:
+      port: 5173
+app:
+  runtime:
+    name: nodejs24.x
+  id: ari:cloud:ecosystem::app/bb41e024-9ba1-4e43-9170-d27b4f468c7e
