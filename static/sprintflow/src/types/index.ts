@@ -5,6 +5,14 @@ export interface CycleTime {
 
 export type CycleTimes = Record<number, CycleTime>;
 
+/** SP → statusName → average whole days spent in that status */
+export type DetailedCycleTimes = Record<number, Record<string, number>>;
+
+export interface BoardStatusConfig {
+  id: string;
+  name: string;
+}
+
 export interface DailyCapacity {
   devs: number;
   qa: number;
@@ -32,6 +40,7 @@ export interface Team {
   id: string;
   name: string;
   cycleTimes: CycleTimes;
+  detailedCycleTimes?: DetailedCycleTimes;
   defaultCapacity: DailyCapacity;
   sprintLength: number;
   /** 1 = Monday … 5 = Friday */
@@ -69,3 +78,17 @@ export interface DayMetrics {
 }
 
 export type View = 'home' | 'config' | 'sprint' | 'quarter';
+
+export interface CycleTimeSettings {
+  devStatuses: string[];
+  qaStatuses: string[];
+  daysBack: number;
+}
+
+export interface SprintOption {
+  id: number;
+  name: string;
+  state: 'active' | 'future';
+  sprintLength: number;
+  sprintStartDay: number;
+}

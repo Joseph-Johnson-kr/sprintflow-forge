@@ -12,7 +12,7 @@ export default function BacklogTable({ team }: Props) {
   if (team.backlog.length === 0) {
     return (
       <div className="text-sm text-slate-500 italic px-3 py-6 border border-dashed border-slate-300 rounded text-center">
-        No stories yet. Upload a CSV to populate the backlog.
+        No issues found in the Jira backlog.
       </div>
     );
   }

@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
 import type {
   Epic,
   Quarter,
@@ -109,9 +108,7 @@ function patchMember(
   };
 }
 
-export const useQuarterStore = create<QuarterState>()(
-  persist(
-    (set, get) => ({
+export const useQuarterStore = create<QuarterState>()((set, get) => ({
       quartersByTeam: {},
       selectedQuarterId: null,
 
@@ -289,27 +286,7 @@ export const useQuarterStore = create<QuarterState>()(
             })),
           ),
         ),
-    }),
-    {
-      name: 'sprintflow-quarters',
-      version: 2,
-      migrate(persistedState: unknown, version: number) {
-        const state = persistedState as { quartersByTeam?: Record<string, Record<string, unknown>[]> };
-        if (version < 2 && state.quartersByTeam) {
-          for (const quarters of Object.values(state.quartersByTeam)) {
-            for (const q of quarters) {
-              if ('okrs' in q && !('epics' in q)) {
-                q.epics = q.okrs;
-                delete q.okrs;
-              }
-            }
-          }
-        }
-        return state as unknown as QuarterState;
-      },
-    },
-  ),
-);
+}));
 
 export function getSelectedQuarter(
   state: QuarterState,
