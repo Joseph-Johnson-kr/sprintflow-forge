@@ -16,6 +16,7 @@ import type {
 
 interface TeamMembersResult {
   teamName: string;
+  teamId: string | null;
   members: TeamMemberConfig[];
 }
 
@@ -77,6 +78,7 @@ export function useForgeData() {
   const projectKeyRef = useRef<string>('');
   const boardIdRef = useRef<string>('');
   const teamNameRef = useRef<string>('');
+  const teamIdRef = useRef<string | null>(null);
   const cycleTimeSettingsRef = useRef<CycleTimeSettings>(DEFAULT_CYCLE_TIME_SETTINGS);
 
   useEffect(() => {
@@ -139,7 +141,9 @@ export function useForgeData() {
         setSelectedSprintId(defaultSprint?.id ?? null);
 
         const fetchedTeamName = teamMembersResult?.teamName ?? '';
+        const fetchedTeamId = teamMembersResult?.teamId ?? null;
         teamNameRef.current = fetchedTeamName;
+        teamIdRef.current = fetchedTeamId;
 
         // Fetch issues for the selected sprint
         const backlogIssues = defaultSprint
@@ -154,11 +158,11 @@ export function useForgeData() {
 
         // Auto-fetch detailed cycle times if none saved
         let detailedCycleTimes: DetailedCycleTimes | null = config.detailedCycleTimes ?? null;
-        if (!detailedCycleTimes && fetchedTeamName) {
+        if (!detailedCycleTimes && fetchedTeamId) {
           try {
             detailedCycleTimes = await call<DetailedCycleTimes | null>('getCycleTimes', {
               projectKey: pKey,
-              teamName: fetchedTeamName,
+              teamId: fetchedTeamId,
               daysBack: settings.daysBack,
             });
           } catch (err) {
@@ -286,16 +290,20 @@ export function useForgeData() {
     if (!selectedTeamId) return;
     setRecalculating(true);
     try {
+      if (!teamIdRef.current) {
+        console.warn('SprintFlow: no team ID available — cannot recalculate cycle times');
+        return;
+      }
       const fresh = await call<DetailedCycleTimes | null>('getCycleTimes', {
         projectKey: projectKeyRef.current,
-        teamName: teamNameRef.current,
+        teamId: teamIdRef.current,
         daysBack: cycleTimeSettingsRef.current.daysBack,
       });
       if (fresh) {
         setDetailedCycleTimes(selectedTeamId, fresh);
         setCycleTimes(selectedTeamId, deriveCycleTimes(fresh, cycleTimeSettingsRef.current));
       } else {
-        console.warn('SprintFlow: no cycle time data returned — check team name, status names, and date range');
+        console.warn('SprintFlow: no cycle time data returned — check team ID, status names, and date range');
       }
     } catch (err) {
       console.error('SprintFlow: failed to recalculate cycle times', err);

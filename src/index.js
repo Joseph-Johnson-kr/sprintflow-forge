@@ -183,7 +183,7 @@ resolver.define('getTeamMembers', async (req) => {
           .filter(Boolean);
         if (members.length > 0) {
           console.log(`[SprintFlow] returning ${members.length} team members from Teams API`);
-          return { teamName, members };
+          return { teamName, teamId, members };
         }
       }
     } catch (err) {
@@ -215,7 +215,7 @@ resolver.define('getTeamMembers', async (req) => {
       }
       if (members.length > 0) {
         console.log(`[SprintFlow] returning ${members.length} members from team-scoped board issues`);
-        return { teamName, members };
+        return { teamName, teamId, members };
       }
     } catch (err) {
       console.warn('[SprintFlow] team-scoped board issue search failed:', err);
@@ -225,7 +225,7 @@ resolver.define('getTeamMembers', async (req) => {
   // Final fallback: all project assignees.
   const members = [...assignableMap.entries()].map(([id, name]) => ({ id, name, role: 'dev' }));
   console.log(`[SprintFlow] returning ${members.length} members from project assignees (final fallback)`);
-  return { teamName, members };
+  return { teamName, teamId, members };
 });
 
 resolver.define('ping', async () => ({ ok: true, build: 'v2' }));
@@ -276,18 +276,28 @@ resolver.define('getBoardStatuses', async (req) => {
 });
 
 resolver.define('getCycleTimes', async (req) => {
-  const { projectKey, teamName, daysBack } = req.payload;
-  if (!projectKey || !teamName) return null;
+  const { projectKey, teamId, daysBack } = req.payload;
+  if (!projectKey || !teamId) return null;
 
   const days = daysBack ?? 60;
 
-  // Team-scoped, complete resolutions only, story-pointed issues only
-  const jql = `project = ${projectKey} AND "Team[Team]" = "${teamName}" AND status = Closed AND resolution = Complete AND "Story Points" is not EMPTY AND updated >= "-${days}d" ORDER BY updated DESC`;
+  // Team-scoped, complete resolutions only, story-pointed issues only.
+  // "Team[Team]" must be compared against the team's ID, unquoted — comparing
+  // against the display name as a quoted string literal matches 0 issues.
+  const jql = `project = ${projectKey} AND "Team[Team]" = ${teamId} AND status = Closed AND resolution = Complete AND "Story Points" is not EMPTY AND updated >= "-${days}d" ORDER BY updated DESC`;
 
-  // asUser() so the logged-in user's project permissions apply
-  const searchRes = await api.asUser().requestJira(
-    route`/rest/api/3/search?jql=${jql}&fields=customfield_10032&expand=changelog&maxResults=200`,
-  );
+  // asUser() so the logged-in user's project permissions apply.
+  // /rest/api/3/search was removed by Atlassian; the replacement is POST-based.
+  const searchRes = await api.asUser().requestJira(route`/rest/api/3/search/jql`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      jql,
+      fields: ['customfield_10032'],
+      expand: 'changelog',
+      maxResults: 200,
+    }),
+  });
   const searchData = await searchRes.json();
 
   if (!searchData.issues?.length) {
@@ -298,7 +308,7 @@ resolver.define('getCycleTimes', async (req) => {
     return null;
   }
 
-  console.log(`[SprintFlow] getCycleTimes: ${searchData.issues.length} issues for team "${teamName}"`);
+  console.log(`[SprintFlow] getCycleTimes: ${searchData.issues.length} issues for team ID "${teamId}"`);
 
   // SP -> statusName -> [days] accumulated across all issues
   const buckets = {};
