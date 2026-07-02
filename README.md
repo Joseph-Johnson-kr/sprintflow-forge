@@ -41,6 +41,70 @@ forge install
 - Use the `forge install` command when you want to install the app on a new site.
 - Once the app is installed on a site, the site picks up the new app changes you deploy without needing to rerun the install command.
 
+## Testing Instructions
+
+Local development uses `forge tunnel`, which serves the React frontend from a local Vite preview server and routes resolver invocations through Forge's tunnel service to your machine.
+
+> **Corporate network note:** `forge tunnel` routes Jira API calls through Node.js on your machine. If a corporate SSL proxy is present, set the following in the same terminal before starting the tunnel to avoid `SELF_SIGNED_CERT_IN_CHAIN` errors:
+>
+> Command Prompt (cmd.exe):
+> ```cmd
+> set NODE_TLS_REJECT_UNAUTHORIZED=0
+> ```
+> PowerShell:
+> ```powershell
+> $env:NODE_TLS_REJECT_UNAUTHORIZED = "0"
+> ```
+
+### Terminal order
+
+**Terminal 1 — Frontend watch build** (`static/sprintflow/`)
+
+Recompiles the React app on every source change and outputs to `build/`:
+```
+npm run watch
+```
+
+**Terminal 2 — Vite preview server** (`static/sprintflow/`)
+
+Serves the compiled `build/` directory on port 5173. Forge tunnel proxies this to the Jira modal:
+```
+npm run serve
+```
+
+**Terminal 3 — Forge tunnel** (project root `SprintFlow/`)
+
+Connects your local machine to Forge, routing resolver function calls here and serving static assets from port 5173:
+```
+forge tunnel
+```
+
+**Terminal 4 — Forge logs** (project root `SprintFlow/`)
+
+Tails resolver `console.log` / `console.error` output in real time. Open this after the tunnel is connected to monitor backend activity:
+```
+forge logs
+```
+
+### Typical workflow
+
+1. Start **Terminal 1** (`npm run watch`) and wait for the initial build to complete.
+2. Start **Terminal 2** (`npm run serve`) — confirm it reports `Local: http://localhost:5173`.
+3. Start **Terminal 3** (`forge tunnel`) — wait for `Tunnel running` confirmation.
+4. Open **Terminal 4** (`forge logs`) to monitor resolver output.
+5. Open the Jira board and click **SprintFlow** in the backlog action menu.
+6. Edit source files in `static/sprintflow/src/` — the watch build recompiles automatically. Hard-refresh the Jira page to pick up changes.
+7. Resolver changes (files in `src/`) are picked up by the tunnel automatically without a restart.
+
+### Deploying to production
+
+When ready to ship, stop the tunnel and run from the project root:
+```
+npm run build   # inside static/sprintflow/ first
+forge deploy
+```
+The deployed build uses Forge's CDN — no local server needed.
+
 ## Support
 
 See [Get help](https://developer.atlassian.com/platform/forge/get-help/) for how to get help and provide feedback.
