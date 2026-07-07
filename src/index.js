@@ -399,13 +399,27 @@ resolver.define('getBacklogEpics', async (req) => {
   const res = await api.asUser().requestJira(route`/rest/api/3/search/jql`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ jql, fields: ['summary'], maxResults: 100 }),
+    body: JSON.stringify({ jql, fields: ['summary', 'customfield_10269'], maxResults: 100 }),
   });
   const data = await res.json();
   const issues = data.issues ?? [];
 
   console.log(`[SprintFlow] getBacklogEpics: ${issues.length} epics for project ${projectKey}`);
-  return issues.map((i) => ({ issueKey: i.key, summary: i.fields?.summary ?? i.key }));
+  return issues.map((i) => ({
+    issueKey: i.key,
+    summary: i.fields?.summary ?? i.key,
+    suggestedSize: mapTshirtSize(i.fields?.customfield_10269),
+  }));
 });
+
+// Matches the Epic's "T-Shirt Size" Jira field (customfield_10269, a select list) against
+// SprintFlow's own T-shirt size scale. Returns undefined if the field is empty or holds a
+// value SprintFlow doesn't recognize, so the frontend leaves the size selection untouched.
+const TSHIRT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'Jumbo'];
+function mapTshirtSize(rawField) {
+  const value = rawField?.value ?? rawField;
+  if (typeof value !== 'string') return undefined;
+  return TSHIRT_SIZES.find((s) => s.toLowerCase() === value.trim().toLowerCase());
+}
 
 export const handler = resolver.getDefinitions();

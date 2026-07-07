@@ -41,6 +41,7 @@ const MOVE_COL_WIDTH = 28;
 export default function FlowGrid({ team }: Props) {
   const setCapacityOverride = useTeamStore((s) => s.setCapacityOverride);
   const updateStory = useTeamStore((s) => s.updateStory);
+  const setRollover = useTeamStore((s) => s.setRollover);
   const moveStoryUp = useTeamStore((s) => s.moveStoryUp);
   const moveStoryDown = useTeamStore((s) => s.moveStoryDown);
   const grid = useMemo(() => buildFlowGrid(team), [team]);
@@ -247,7 +248,7 @@ export default function FlowGrid({ team }: Props) {
                       type="checkbox"
                       checked={rollover}
                       onChange={(e) =>
-                        updateStory(team.id, row.story.issueKey, { rollover: e.target.checked })
+                        setRollover(team.id, row.story.issueKey, e.target.checked)
                       }
                       className="w-3.5 h-3.5 rounded border-slate-300 cursor-pointer"
                     />

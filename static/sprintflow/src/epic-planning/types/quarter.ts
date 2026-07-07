@@ -1,4 +1,4 @@
-export type TShirtSize = 'XS' | 'S' | 'M' | 'L' | 'XL';
+export type TShirtSize = 'XS' | 'S' | 'M' | 'L' | 'XL' | 'Jumbo';
 
 export const TSHIRT_SPRINT_DURATIONS: Record<TShirtSize, number> = {
   XS: 0.5,
@@ -6,9 +6,10 @@ export const TSHIRT_SPRINT_DURATIONS: Record<TShirtSize, number> = {
   M: 2,
   L: 3,
   XL: 6,
+  Jumbo: 8,
 };
 
-export const TSHIRT_SIZE_OPTIONS: TShirtSize[] = ['XS', 'S', 'M', 'L', 'XL'];
+export const TSHIRT_SIZE_OPTIONS: TShirtSize[] = ['XS', 'S', 'M', 'L', 'XL', 'Jumbo'];
 
 export const TSHIRT_LABELS: Record<TShirtSize, string> = {
   XS: 'XS · 5 days',
@@ -16,6 +17,7 @@ export const TSHIRT_LABELS: Record<TShirtSize, string> = {
   M: 'M · 2 sprints',
   L: 'L · 3 sprints',
   XL: 'XL · 6 sprints',
+  Jumbo: 'Jumbo · 8 sprints',
 };
 
 export type RiskLevel = 'low' | 'medium' | 'high';
@@ -41,6 +43,8 @@ export interface Epic {
 export interface BacklogEpicOption {
   issueKey: string;
   summary: string;
+  /** T-shirt size from the Epic's "T-Shirt Size" Jira field (customfield_10269), when set. */
+  suggestedSize?: TShirtSize;
 }
 
 export interface MemberAbsence {

@@ -152,6 +152,9 @@ function EpicRow({ teamId, quarter, epic, index, isFirst, isLast, backlogEpics }
             updateEpic(teamId, quarter.id, epic.id, {
               issueKey: key || undefined,
               title: chosen ? chosen.summary : epic.title,
+              // Pre-fill size from the Epic's Jira T-Shirt Size field when it's set;
+              // otherwise leave the current size selection untouched.
+              ...(chosen?.suggestedSize ? { size: chosen.suggestedSize } : {}),
             });
           }}
           className="flex-1 text-sm border border-slate-200 rounded px-2 py-1.5 bg-white hover:border-slate-300 focus:border-slate-400 focus:outline-none"

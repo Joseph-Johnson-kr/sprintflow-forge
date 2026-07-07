@@ -19,6 +19,7 @@ const SIZE_COLORS: Record<string, string> = {
   M: 'bg-indigo-200 text-indigo-900',
   L: 'bg-blue-300 text-blue-900',
   XL: 'bg-blue-500 text-white',
+  Jumbo: 'bg-slate-700 text-white',
 };
 
 function memberAbsenceDays(member: TeamMember, sprintNumber: number): number {

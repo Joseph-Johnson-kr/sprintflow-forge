@@ -1,18 +1,21 @@
 # SprintFlow — Product Requirements Document
 
-**Version:** 2.0
+**Version:** 3.1
 **Status:** Current
-**Scope:** Sprint Forecasting (Jira Forge App)
+**Scope:** Sprint Forecasting & Quarterly Epic Planning (Jira Forge App)
 
 ---
 
 ## 1. Executive Summary
 
-SprintFlow is an Atlassian Forge app that adds a **SprintFlow** action to the Jira Cloud backlog view. It gives engineering managers a day-by-day visualization of how the currently selected sprint's work will flow through Dev and QA, grounded in the team's own historical cycle time data and daily capacity — instead of relying on velocity alone.
+SprintFlow is an Atlassian Forge app that adds a **SprintFlow Tools** action to the Jira Cloud backlog view, with two panels reachable from a submenu:
 
-Unlike a standalone planning tool, SprintFlow runs *inside* Jira as a Forge Custom UI panel (`jira:backlogAction`). It reads sprint, board, team, and issue data directly from the Jira Cloud site it's installed on — no CSV export/import step, no separate login, and no data leaving Atlassian's infrastructure. Cycle times are calculated automatically from each team's own closed-issue history (time spent in each workflow status), removing the need to manually estimate Dev/QA duration per story-point value.
+- **SprintFlow** gives engineering managers a day-by-day visualization of how the currently selected sprint's work will flow through Dev and QA, grounded in the team's own historical cycle time data and daily capacity — instead of relying on velocity alone.
+- **Epic Planning** (see Section 9) gives teams a quarter-by-quarter forecast of whether their T-shirt-sized Epic commitments fit realistic sprint dev capacity across a full year, before committing to a roadmap.
 
-Configuration (cycle times, team member roles, capacity, phase assignments) is saved via Forge's managed app storage, scoped per Jira project, and persists across sessions without any user account or backend to maintain.
+Both panels run *inside* Jira as Forge Custom UI panels (`jira:backlogAction`). They read sprint, board, team, and issue data directly from the Jira Cloud site they're installed on — no CSV export/import step, no separate login, and no data leaving Atlassian's infrastructure. SprintFlow's cycle times are calculated automatically from each team's own closed-issue history (time spent in each workflow status), removing the need to manually estimate Dev/QA duration per story-point value.
+
+Configuration for both panels is saved via Forge's managed app storage, scoped per Jira project, and persists across sessions without any user account or backend to maintain.
 
 ---
 
@@ -93,6 +96,8 @@ Per story, users can edit:
 
 All other fields (Key, Summary, Story Points) are read-only, sourced from Jira. Stories can be removed from the working set and reordered (move up/down) within the backlog table; this does not modify the underlying Jira issue, only SprintFlow's local view of it.
 
+**Rollover auto-repositioning:** Checking a story's Rollover box moves it to the bottom of the rollover group at the top of the backlog/Flow Grid (rollover rows cluster together, in the order they were marked, above all non-rollover rows), so carried-over work is immediately visible without scrolling. Unchecking it clears the flag but leaves the row in place — it is not automatically moved back down.
+
 ### 6.5 Cycle Time Calculation (from Jira History)
 
 This is the core data input that replaces manual cycle-time estimation:
@@ -137,7 +142,7 @@ The Flow Grid is the core forecast output. It is a matrix of **stories (rows) ×
 
 **Manual override mode:** Toggling a story's Override checkbox lets the user click individual day cells to manually cycle through states (Done → Dev → QA → Idle → Done), bypassing the computed schedule for that story.
 
-**Rollover stories** are highlighted in red in the story name column for immediate visibility.
+**Rollover stories** are highlighted in red in the story name column for immediate visibility, and are automatically repositioned to the top of the grid when flagged (Section 6.4).
 
 **Summary rows** (individually toggleable):
 
@@ -170,14 +175,20 @@ The Flow Grid is the core forecast output. It is a matrix of **stories (rows) ×
 ## 7. Navigation & Information Architecture
 
 ```
-Jira Backlog → "SprintFlow" action → opens Forge panel
+Jira Backlog → "SprintFlow Tools" action → submenu
+├── SprintFlow      — opens the sprint-forecasting Forge panel
+└── Epic Planning   — opens the quarterly Epic-forecasting Forge panel (Section 9)
 
-Panel Nav (top bar)
+SprintFlow Panel Nav (top bar)
 ├── Sprint   — Flow Grid + Backlog Table for the selected sprint
 └── Config   — Team members, cycle times, phase assignment, capacity
+
+Epic Planning Panel Nav (top bar controls)
+├── Year selector       — auto-provisions that year's Q1–Q4 quarters
+└── Quarter selector    — Q1 / Q2 / Q3 / Q4 / All (Section 9.7)
 ```
 
-There is no multi-team sidebar, no home/how-to page, and no quarter-level view — the panel opens directly into the Sprint view for the current board's team, with a sprint dropdown to switch between active/future sprints.
+There is no multi-team sidebar and no home/how-to page — each panel opens directly into its primary working view (Sprint view for SprintFlow, the selected quarter for Epic Planning) for the current board's team.
 
 ---
 
@@ -262,7 +273,108 @@ SprintOption {
 
 ---
 
-## 9. Non-Functional Requirements
+## 9. Epic Planning Module
+
+### 9.1 Overview
+
+Epic Planning is the second panel reachable from the **SprintFlow Tools** backlog action (`epic-planning` submenu item, distinct from the `sprintflow` item — see `manifest.yml`). Where SprintFlow forecasts a single sprint's day-by-day Dev/QA flow at the story level, Epic Planning forecasts Epic-level commitments at the quarter/sprint grain across a full year, so a team can see whether their roadmap fits realistic sprint dev capacity before drilling into per-sprint planning.
+
+### 9.2 Users
+
+| Role | Description |
+|---|---|
+| **Engineering Manager / Team Lead** | Owns quarterly roadmap planning for the team associated with a given Jira board/project. Assigns T-shirt sizes and dev allocation to Epics, tracks risks/dependencies, records team member absences, and reviews the forecast to catch overcommitment before a quarter starts. |
+
+Epic Planning shares SprintFlow's **one team per Jira board/project context** model — team identity is resolved via the same `getTeamMembers` resolver used by SprintFlow (Section 6.1), so there is no separate team setup step.
+
+### 9.3 Goals
+
+- Let a team plan multiple T-shirt-sized Epics against sprint-level dev capacity across a full year, split into Q1–Q4 quarters
+- Auto-provision all four quarters for a selected year with sensible sprint-count defaults, rather than requiring a manual "add quarter" step
+- Support **Epic rollover** — an Epic spanning quarter boundaries can be entered in each quarter it's active in without being treated as a duplicate or double-booked
+- Model **dependencies** between Epics and **per-member sprint absences**, and compute scheduling automatically via dependency-aware bin-packing rather than requiring manual scheduling
+- Surface Epics that don't fit a quarter's capacity ("overflow") so scope conversations happen before commitment, not mid-quarter
+- Provide a read-only view spanning all four quarters of a year to catch cross-quarter alignment issues (e.g., an Epic rolling from Q1 into Q2) without flipping between quarters
+- Persist entirely in Forge storage, scoped per project, with no separate login or config step beyond what SprintFlow already establishes
+
+### 9.4 Functional Requirements
+
+**Quarters**
+
+- A quarter (`Quarter`) belongs to one team, one year, and one name (Q1–Q4), and holds its own sprint count, member list, and Epic list
+- Selecting a year (bounded dropdown: current year − 1 to + 2) auto-creates any of that year's four quarters that don't yet exist, defaulting sprint counts to Q1 = 8 and Q2–Q4 = 6 sprints; existing quarters and their data are left untouched
+- **Reset Quarter** clears a single quarter's Epics, sprint count (back to its default), and member absences, without removing the quarter itself or affecting other quarters/years — gated behind a confirmation dialog since it's unrecoverable
+- Sprint count per quarter is user-editable (1–20)
+
+**Epics**
+
+- Each Epic has: an optional link to a real Jira Epic (`issueKey` + summary, chosen from a live backlog dropdown) or a free-text title if unlinked; a T-shirt size (XS–XL plus Jumbo, mapped to a fixed sprint duration: XS = 0.5, S = 1, M = 2, L = 3, XL = 6, Jumbo = 8 sprints); a dev-allocation headcount; free-text risks (each tagged low/medium/high) and notes; and dependencies on other Epics in the same quarter
+- Within a single quarter, a backlog-linked Epic can only be assigned to one row — Epics already used by another row in that quarter are hidden from the selection dropdown to prevent double-planning. The **same** Epic can be re-selected in a **different** quarter, which is how rollover work continuing into the next quarter is represented
+- Epics can be reordered (move up/down) within a quarter; order affects display and, when the scheduler has a tie, scheduling priority
+- Available backlog Epics are fetched live from Jira (`getBacklogEpics`): issue type Epic, project-scoped, team-scoped when a real Team ID is resolved, excluding Closed/Cancelled statuses
+- **T-shirt size pre-population:** selecting a backlog Epic reads its Jira **T-Shirt Size** field (`customfield_10269`); if it holds a value matching one of the six sizes, the Epic's size is set to that value automatically. If the field is empty or unrecognized, the size is left at its current value for manual selection (defaults to M for a new Epic row)
+
+**Team Capacity**
+
+- Team roster is synced from Jira (same source as SprintFlow's Team Members) into each quarter independently, keyed by the Jira-sourced member ID so a member's identity stays stable across quarters
+- Per member, per sprint, a user enters days absent (0–10, where 10 is a fully-out sprint) in a member-by-sprint grid; per-member total available days and a per-sprint "Available Devs" summary row are derived automatically
+
+**Forecast Engine**
+
+For each quarter independently (there is no cross-quarter scheduling model), the forecast engine:
+
+- Computes per-sprint total dev-day capacity from team absences (10 days per sprint per fully-available member, reduced by absence days)
+- Topologically sorts Epics by their declared dependencies, so a dependent Epic is never scheduled to start before its dependencies' end sprint
+- Greedily bin-packs each Epic into the earliest contiguous sprint range (sized by its T-shirt duration) with sufficient remaining dev-day capacity for its dev allocation
+- Flags an Epic that cannot fit anywhere within the quarter's sprint count as **overflow** rather than silently dropping it or force-fitting it
+- Produces per-sprint metrics (available/used dev-days, utilization ratio), color-coded green (≤80%), amber (≤100%), or red (>100%)
+
+This mirrors SprintFlow's Flow Grid philosophy — visualize capacity vs. demand before commitment — at the Epic/quarter grain instead of the story/day grain.
+
+**Single-Quarter Forecast Grid**
+
+- Epic rows show a size-colored bar spanning their scheduled sprint range, with size-letter and continuation markers on the first/middle/last sprint of the bar, and a red overflow badge when an Epic doesn't fit
+- An "Epics / Members / Both" toggle switches the grid between Epic schedules, a member absence heatmap, or both
+- Three footer rows show available dev-days, used dev-days, and utilization per sprint
+- An overflow banner lists any Epics that don't fit, or an all-clear banner when everything fits
+
+### 9.5 Combined "All Quarters" View
+
+A fifth option ("All") in the quarter selector renders all four of the selected year's quarters merged into a single, continuous, horizontally-scrollable table rather than four separate grids:
+
+- Column groups run Q1's sprint columns, then Q2's, Q3's, and Q4's, each visually delineated with a labeled quarter header
+- An Epic entered into more than one quarter (rollover) merges into a **single row** spanning the relevant quarter blocks, with its own independently-computed forecast bar drawn under each quarter block it's scheduled in — so an Epic's Q1 tail and Q2 continuation are visible on one line, not as duplicate rows
+- Team members merge the same way, by their stable Jira-sourced ID
+- The three capacity footer rows span the full merged column set
+- Strictly read-only — no add/edit/remove controls; users return to a specific quarter to make changes
+
+### 9.6 Data Architecture
+
+- **Storage key:** `sprintflow-quarters:{projectKey}` (Forge app storage, `storage:app` scope) holds the full array of quarters for that project's team — a separate key from SprintFlow's own `sprintflow-config:{projectKey}` so the two modules' data never collide. Saves are debounced (500ms) and flushed immediately on panel close, same pattern as SprintFlow (Section 8.1)
+- **Core data model:** `Quarter { id, name, year, sprintCount, teamId, members, epics }`, `Epic { id, title, issueKey?, size, devAllocation, risks, dependencies, notes }`, `TeamMember { id, name, absences }`, plus forecast-only types (`EpicSchedule`, `SprintMetrics`) produced by the forecast engine and not persisted
+- **Resolvers added for Epic Planning:**
+
+| Resolver | Purpose |
+|---|---|
+| `loadQuarters` / `saveQuarters` | Reads/writes the project-scoped `Quarter[]` array to Forge storage |
+| `getBacklogEpics` | Live, project/team-scoped Jira query for open Epics available to assign, including each Epic's T-Shirt Size field for size pre-population |
+
+`getTeamMembers` (Section 8.3) is reused unchanged from SprintFlow — there is no separate roster resolver for Epic Planning.
+
+**Jira custom field referenced:** T-Shirt Size, `customfield_10269` — a single-select field on Epics; matched case-insensitively against SprintFlow's own size scale (XS/S/M/L/XL/Jumbo) to pre-populate an Epic's size when assigned.
+
+### 9.7 Out of Scope (Epic Planning–specific)
+
+| Feature | Rationale for Exclusion |
+|---|---|
+| Cross-quarter scheduling / a unified timeline model | The "All" view is a read-only, render-time merge over four independently-computed per-quarter forecasts, not a shared scheduling engine — deliberately avoided to keep each quarter's forecast simple and independently resettable |
+| Writing planning data back to Jira Epics | Same read-only-against-Jira principle as SprintFlow (Section 11) — Epic sizing, dev allocation, risk, dependency, and notes data lives only in Epic Planning's own storage |
+| Automatic Epic rollover | The tool does not move an unfinished Epic into the next quarter automatically; a user re-selects the same Epic in the next quarter's Epic list manually |
+| Historical/versioned quarters | Resetting or overwriting a quarter's data is destructive and unrecoverable (no undo/history), consistent with the confirmation-gated Reset Quarter action |
+
+---
+
+## 10. Non-Functional Requirements
 
 | Requirement | Specification |
 |---|---|
@@ -280,7 +392,7 @@ SprintOption {
 
 ---
 
-## 10. Out of Scope
+## 11. Out of Scope
 
 | Feature | Rationale for Exclusion |
 |---|---|
@@ -291,13 +403,15 @@ SprintOption {
 | Individual story or task assignments | Violates the non-prescriptive model; would make the tool feel like a project management system |
 | Gantt chart or timeline export | Out of scope for current planning workflow |
 | Mobile / responsive layout | Primary use is on a laptop during a planning session, inside the Jira web app |
-| Quarter Planning / OKR tracking | See Section 11 — exists as an unintegrated prototype from an earlier standalone version of SprintFlow, not part of the current Forge app |
+
+See Section 9.7 for Epic Planning–specific out-of-scope items.
 
 ---
 
-## 11. Open Questions / Future Considerations
+## 12. Open Questions / Future Considerations
 
-- **Quarter Planning revival:** An earlier standalone (non-Forge) version of SprintFlow included a Quarter Planning module — T-shirt-sized OKRs, dependency-aware scheduling, per-member absence tracking, and a sprint-by-sprint capacity forecast. That code exists in the repository but is not wired into the current Forge app's navigation. A future version could reintroduce it as a second Forge module/tab, adapted to pull team roster and absence data from Jira where possible rather than manual entry.
+- **Epic Planning ↔ Jira write-back:** Epic Planning is currently entirely one-directional (reads Epics from Jira, keeps sizing/scheduling data local). A future version could optionally sync computed schedule dates back to Jira Epic fields for visibility outside the app.
+- **Epic Planning capacity data entry:** Member absences are entered manually per sprint per quarter. A future version could source planned time off from an existing Jira/HR data source where available, reducing manual upkeep.
 - **Multi-board team detection:** The current Team field-based detection assumes issues in a project consistently carry the same Team value. Projects that intentionally span multiple teams within one board are not explicitly modeled beyond the existing team-scoped fallback logic.
 - **Cross-sprint rollover tracking:** Rollover is currently a per-issue, per-load flag (detected from the Sprint field) rather than a tracked history; a future version could show how many times a story has rolled over.
 - **Confidence interval display:** The cycle time model currently reports a single average per status/point value. A future version could show variance (e.g., min/median/max) to better convey estimate uncertainty.

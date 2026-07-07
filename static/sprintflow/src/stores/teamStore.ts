@@ -29,6 +29,7 @@ interface TeamState {
 
   setBacklog: (teamId: string, backlog: Story[]) => void;
   updateStory: (teamId: string, issueKey: string, patch: Partial<Story>) => void;
+  setRollover: (teamId: string, issueKey: string, value: boolean) => void;
   removeStory: (teamId: string, issueKey: string) => void;
   clearBacklog: (teamId: string) => void;
   moveStoryUp: (teamId: string, issueKey: string) => void;
@@ -162,6 +163,23 @@ export const useTeamStore = create<TeamState>()((set) => ({
           st.issueKey === issueKey ? { ...st, ...patch } : st,
         ),
       })),
+    })),
+
+  setRollover: (teamId, issueKey, value) =>
+    set((s) => ({
+      teams: updateTeam(s.teams, teamId, (t) => {
+        const backlog = t.backlog.map((st) =>
+          st.issueKey === issueKey ? { ...st, rollover: value } : st,
+        );
+        if (!value) return { ...t, backlog };
+
+        const idx = backlog.findIndex((st) => st.issueKey === issueKey);
+        if (idx < 0) return { ...t, backlog };
+        const [story] = backlog.splice(idx, 1);
+        const insertAt = backlog.findIndex((st) => !st.rollover);
+        backlog.splice(insertAt < 0 ? backlog.length : insertAt, 0, story);
+        return { ...t, backlog };
+      }),
     })),
 
   removeStory: (teamId, issueKey) =>

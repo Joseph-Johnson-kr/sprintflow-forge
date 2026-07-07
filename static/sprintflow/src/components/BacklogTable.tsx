@@ -7,6 +7,7 @@ interface Props {
 
 export default function BacklogTable({ team }: Props) {
   const updateStory = useTeamStore((s) => s.updateStory);
+  const setRollover = useTeamStore((s) => s.setRollover);
   const removeStory = useTeamStore((s) => s.removeStory);
 
   if (team.backlog.length === 0) {
@@ -74,7 +75,7 @@ export default function BacklogTable({ team }: Props) {
                       type="checkbox"
                       checked={rollover}
                       onChange={(e) =>
-                        updateStory(team.id, story.issueKey, { rollover: e.target.checked })
+                        setRollover(team.id, story.issueKey, e.target.checked)
                       }
                       className="w-4 h-4 rounded border-slate-300 cursor-pointer"
                     />
