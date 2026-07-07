@@ -312,50 +312,64 @@ export function useForgeData() {
     }
   }, [selectedTeamId, setDetailedCycleTimes, setCycleTimes]);
 
-  // Debounced auto-save
+  // Debounced auto-save — flushed immediately on unmount so closing the panel
+  // shortly after an edit doesn't silently drop the pending save.
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingSaveRef = useRef<{ projectKey: string; config: SavedConfig } | null>(null);
+
+  const flushSave = useRef(() => {
+    if (saveTimer.current) {
+      clearTimeout(saveTimer.current);
+      saveTimer.current = null;
+    }
+    const pending = pendingSaveRef.current;
+    if (!pending) return;
+    pendingSaveRef.current = null;
+    call('saveConfig', pending).catch((err) =>
+      console.error('SprintFlow: failed to save config', err),
+    );
+  }).current;
 
   useEffect(() => {
     if (loading || !projectKey || !selectedTeamId) return;
     const team = teams.find((t) => t.id === selectedTeamId);
     if (!team) return;
 
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => {
-      const storyOverrides: Record<string, Partial<Story>> = {};
-      for (const s of team.backlog) {
-        const { issueKey, startDay, rollover, override, overrideCells } = s;
-        if (startDay !== 1 || rollover || override || overrideCells.length > 0) {
-          storyOverrides[issueKey] = { startDay, rollover, override, overrideCells };
-        }
+    const storyOverrides: Record<string, Partial<Story>> = {};
+    for (const s of team.backlog) {
+      const { issueKey, startDay, rollover, override, overrideCells } = s;
+      if (startDay !== 1 || rollover || override || overrideCells.length > 0) {
+        storyOverrides[issueKey] = { startDay, rollover, override, overrideCells };
       }
-      storyOverridesRef.current = storyOverrides;
+    }
+    storyOverridesRef.current = storyOverrides;
 
-      const memberRoles: Record<string, MemberRole> = {};
-      for (const m of team.members) {
-        memberRoles[m.id] = m.role;
-      }
+    const memberRoles: Record<string, MemberRole> = {};
+    for (const m of team.members) {
+      memberRoles[m.id] = m.role;
+    }
 
-      const config: SavedConfig = {
-        devsAreQAs: team.devsAreQAs,
-        capacityOverrides: team.capacityOverrides,
-        cycleTimes: team.cycleTimes,
-        detailedCycleTimes: team.detailedCycleTimes,
-        cycleTimeSettings: cycleTimeSettingsRef.current,
-        storyOverrides,
-        memberRoles,
-        selectedSprintId: selectedSprintId ?? undefined,
-      };
-
-      call('saveConfig', { projectKey, config }).catch((err) =>
-        console.error('SprintFlow: failed to save config', err),
-      );
-    }, 500);
-
-    return () => {
-      if (saveTimer.current) clearTimeout(saveTimer.current);
+    const config: SavedConfig = {
+      devsAreQAs: team.devsAreQAs,
+      capacityOverrides: team.capacityOverrides,
+      cycleTimes: team.cycleTimes,
+      detailedCycleTimes: team.detailedCycleTimes,
+      cycleTimeSettings: cycleTimeSettingsRef.current,
+      storyOverrides,
+      memberRoles,
+      selectedSprintId: selectedSprintId ?? undefined,
     };
-  }, [loading, projectKey, selectedTeamId, teams, selectedSprintId]);
+
+    pendingSaveRef.current = { projectKey, config };
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(flushSave, 500);
+  }, [loading, projectKey, selectedTeamId, teams, selectedSprintId, flushSave]);
+
+  useEffect(() => {
+    return () => {
+      flushSave();
+    };
+  }, [flushSave]);
 
   return {
     loading,

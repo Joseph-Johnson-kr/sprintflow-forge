@@ -26,6 +26,27 @@ resolver.define('saveConfig', async (req) => {
   }
 });
 
+resolver.define('loadQuarters', async (req) => {
+  const { projectKey } = req.payload;
+  try {
+    return await storage.get(`sprintflow-quarters:${projectKey}`) ?? null;
+  } catch (err) {
+    console.error('[SprintFlow] loadQuarters failed:', err);
+    return null;
+  }
+});
+
+resolver.define('saveQuarters', async (req) => {
+  const { projectKey, quarters } = req.payload;
+  try {
+    await storage.set(`sprintflow-quarters:${projectKey}`, quarters);
+    return { ok: true };
+  } catch (err) {
+    console.error('[SprintFlow] saveQuarters failed:', err);
+    return { ok: false };
+  }
+});
+
 // ─── Jira Data (v2) ───────────────────────────────────────────────────────────
 
 const STORY_ISSUE_TYPES = new Set(['Story', 'Bug', 'Spike']);
@@ -363,6 +384,28 @@ resolver.define('getCycleTimes', async (req) => {
     console.log(`[SprintFlow] getCycleTimes: SP=${sp}`, JSON.stringify(result[sp]));
   }
   return result;
+});
+
+resolver.define('getBacklogEpics', async (req) => {
+  const { projectKey, teamId } = req.payload;
+  if (!projectKey) return [];
+
+  // teamId falls back to projectKey when no real Team field is resolved (see getTeamMembers) —
+  // only add the team filter when we have a real team ID, not that fallback placeholder.
+  const jql = teamId && teamId !== projectKey
+    ? `project = ${projectKey} AND issuetype = Epic AND "Team[Team]" = ${teamId} AND status NOT IN (Closed, Cancelled) ORDER BY summary ASC`
+    : `project = ${projectKey} AND issuetype = Epic AND status NOT IN (Closed, Cancelled) ORDER BY summary ASC`;
+
+  const res = await api.asUser().requestJira(route`/rest/api/3/search/jql`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jql, fields: ['summary'], maxResults: 100 }),
+  });
+  const data = await res.json();
+  const issues = data.issues ?? [];
+
+  console.log(`[SprintFlow] getBacklogEpics: ${issues.length} epics for project ${projectKey}`);
+  return issues.map((i) => ({ issueKey: i.key, summary: i.fields?.summary ?? i.key }));
 });
 
 export const handler = resolver.getDefinitions();

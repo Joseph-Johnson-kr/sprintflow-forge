@@ -29,11 +29,18 @@ export interface Risk {
 export interface Epic {
   id: string;
   title: string;
+  issueKey?: string;
   size: TShirtSize;
   devAllocation: number;
   risks: Risk[];
   dependencies: string[];
   notes: string;
+}
+
+/** An open Epic from the team's Jira backlog, as returned by the getBacklogEpics resolver. */
+export interface BacklogEpicOption {
+  issueKey: string;
+  summary: string;
 }
 
 export interface MemberAbsence {
@@ -45,6 +52,12 @@ export interface TeamMember {
   id: string;
   name: string;
   absences: MemberAbsence[];
+}
+
+/** Minimal shape of a Jira-sourced team member, as returned by the getTeamMembers resolver. */
+export interface RosterMember {
+  id: string;
+  name: string;
 }
 
 export type QuarterName = 'Q1' | 'Q2' | 'Q3' | 'Q4';

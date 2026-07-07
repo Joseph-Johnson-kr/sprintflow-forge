@@ -77,7 +77,7 @@ export interface DayMetrics {
   qaLoad: number;
 }
 
-export type View = 'home' | 'config' | 'sprint' | 'quarter';
+export type View = 'home' | 'config' | 'sprint';
 
 export interface CycleTimeSettings {
   devStatuses: string[];

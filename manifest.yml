@@ -5,7 +5,12 @@
       resolver:
         function: resolver
       viewportSize: max
-      title: SprintFlow
+      title: SprintFlow Tools
+      actions:
+        - key: sprintflow
+          title: SprintFlow
+        - key: epic-planning
+          title: Epic Planning
   function:
     - key: resolver
       handler: index.handler

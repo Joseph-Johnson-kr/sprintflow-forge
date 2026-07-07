@@ -19,7 +19,7 @@ npm install
 npm install
 ```
 
-- Modify your app by editing the files in `static/sprintflow/src/`.
+- Modify your app by editing the files in `static/sprintflow/src/` — SprintFlow's own views live at the top level, Epic Planning's live under `src/epic-planning/`. `src/Root.tsx` decides which one to render based on which backlog action submenu item was clicked.
 
 - Build your app (inside of the `static/sprintflow` directory):
 ```
@@ -88,19 +88,19 @@ forge logs
 
 ### Typical workflow
 
-1. Start **Terminal 1** (`npm run watch`) and wait for the initial build to complete.
-2. Start **Terminal 2** (`npm run serve`) — confirm it reports `Local: http://localhost:5173`.
+1. Start **Terminal 1** (`npm run watch` in `static/sprintflow/`) and wait for the initial build to complete.
+2. Start **Terminal 2** (`npm run serve` in `static/sprintflow/`) — confirm it reports `Local: http://localhost:5173`.
 3. Start **Terminal 3** (`forge tunnel`) — wait for `Tunnel running` confirmation.
 4. Open **Terminal 4** (`forge logs`) to monitor resolver output.
-5. Open the Jira board and click **SprintFlow** in the backlog action menu.
-6. Edit source files in `static/sprintflow/src/` — the watch build recompiles automatically. Hard-refresh the Jira page to pick up changes.
+5. Open the Jira board, open the backlog action menu, and hover **SprintFlow Tools** to reveal the **SprintFlow** / **Epic Planning** submenu.
+6. Edit source files in `static/sprintflow/src/` (SprintFlow's own views) or `static/sprintflow/src/epic-planning/` (Epic Planning) — the watch build recompiles automatically. Hard-refresh the Jira page to pick up changes.
 7. Resolver changes (files in `src/`) are picked up by the tunnel automatically without a restart.
 
 ### Deploying to production
 
 When ready to ship, stop the tunnel and run from the project root:
 ```
-npm run build   # inside static/sprintflow/ first
+npm run build   # inside static/sprintflow/
 forge deploy
 ```
 The deployed build uses Forge's CDN — no local server needed.

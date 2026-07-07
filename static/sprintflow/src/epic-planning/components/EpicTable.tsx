@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import type { Epic, Quarter, RiskLevel, TShirtSize } from '../types/quarter';
+import type { BacklogEpicOption, Epic, Quarter, RiskLevel, TShirtSize } from '../types/quarter';
 import { TSHIRT_LABELS, TSHIRT_SIZE_OPTIONS } from '../types/quarter';
 import { useQuarterStore } from '../stores/quarterStore';
 
 interface Props {
   teamId: string;
   quarter: Quarter;
+  backlogEpics: BacklogEpicOption[];
 }
 
 const RISK_COLORS: Record<RiskLevel, string> = {
@@ -93,9 +94,10 @@ interface EpicRowProps {
   index: number;
   isFirst: boolean;
   isLast: boolean;
+  backlogEpics: BacklogEpicOption[];
 }
 
-function EpicRow({ teamId, quarter, epic, index, isFirst, isLast }: EpicRowProps) {
+function EpicRow({ teamId, quarter, epic, index, isFirst, isLast, backlogEpics }: EpicRowProps) {
   const updateEpic = useQuarterStore((s) => s.updateEpic);
   const removeEpic = useQuarterStore((s) => s.removeEpic);
   const moveEpicUp = useQuarterStore((s) => s.moveEpicUp);
@@ -107,6 +109,17 @@ function EpicRow({ teamId, quarter, epic, index, isFirst, isLast }: EpicRowProps
 
   const topLevel = highestRiskLevel(epic);
   const otherEpics = quarter.epics.filter((e) => e.id !== epic.id);
+
+  // An Epic already assigned to a different row in this quarter is hidden from
+  // this row's options so it can't be double-planned. Epics may repeat across
+  // quarters (rollover: an Epic started but not finished in one quarter can be
+  // continued in the next).
+  const usedElsewhere = new Set(
+    quarter.epics
+      .filter((e) => e.id !== epic.id && e.issueKey)
+      .map((e) => e.issueKey),
+  );
+  const availableBacklogEpics = backlogEpics.filter((be) => !usedElsewhere.has(be.issueKey));
 
   return (
     <div className="border-t border-slate-100 py-2">
@@ -131,14 +144,25 @@ function EpicRow({ teamId, quarter, epic, index, isFirst, isLast }: EpicRowProps
         </div>
 
         {/* Title */}
-        <input
-          value={epic.title}
-          onChange={(e) =>
-            updateEpic(teamId, quarter.id, epic.id, { title: e.target.value })
-          }
-          placeholder="Epic title…"
-          className="flex-1 text-sm border border-slate-200 rounded px-2 py-1.5 hover:border-slate-300 focus:border-slate-400 focus:outline-none"
-        />
+        <select
+          value={epic.issueKey ?? ''}
+          onChange={(e) => {
+            const key = e.target.value;
+            const chosen = backlogEpics.find((be) => be.issueKey === key);
+            updateEpic(teamId, quarter.id, epic.id, {
+              issueKey: key || undefined,
+              title: chosen ? chosen.summary : epic.title,
+            });
+          }}
+          className="flex-1 text-sm border border-slate-200 rounded px-2 py-1.5 bg-white hover:border-slate-300 focus:border-slate-400 focus:outline-none"
+        >
+          <option value="">{epic.title || 'Select an Epic…'}</option>
+          {availableBacklogEpics.map((be) => (
+            <option key={be.issueKey} value={be.issueKey}>
+              {be.issueKey} — {be.summary}
+            </option>
+          ))}
+        </select>
 
         {/* Size */}
         <select
@@ -297,7 +321,7 @@ function EpicRow({ teamId, quarter, epic, index, isFirst, isLast }: EpicRowProps
   );
 }
 
-export default function OKRTable({ teamId, quarter }: Props) {
+export default function EpicTable({ teamId, quarter, backlogEpics }: Props) {
   const addEpic = useQuarterStore((s) => s.addEpic);
 
   return (
@@ -317,6 +341,7 @@ export default function OKRTable({ teamId, quarter }: Props) {
               index={i}
               isFirst={i === 0}
               isLast={i === (quarter.epics ?? []).length - 1}
+              backlogEpics={backlogEpics}
             />
           ))}
         </div>

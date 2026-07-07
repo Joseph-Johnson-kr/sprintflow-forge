@@ -1,6 +1,7 @@
 import type { BoardStatusConfig, CycleTimeSettings, DetailedCycleTimes, MemberRole, Team } from '../types';
 import CycleTimeEditor from './CycleTimeEditor';
 import CapacityEditor from './CapacityEditor';
+import CollapsibleSection from './CollapsibleSection';
 import { useTeamStore } from '../stores/teamStore';
 import { SPRINT_START_OPTIONS } from '../utils/sprintDays';
 
@@ -230,32 +231,33 @@ export default function ConfigView({
       </section>
 
       {/* Team Members */}
-      <section className="mb-8">
-        <h2 className="text-sm font-semibold text-slate-700 uppercase mb-3">Team members</h2>
-        <p className="text-xs text-slate-400 mb-3">Names pulled from Jira. Toggle each member's role below.</p>
-        <TeamMembersEditor team={team} />
-        <label className="flex items-center gap-2 mt-4 cursor-pointer w-fit">
-          <input
-            type="checkbox"
-            checked={team.devsAreQAs ?? false}
-            onChange={(e) => setDevsAreQAs(team.id, e.target.checked)}
-            className="w-4 h-4 rounded border-slate-300 cursor-pointer"
-          />
-          <span className="text-sm text-slate-700">Developers are also QAs</span>
-        </label>
-        <p className="text-xs text-slate-400 mt-1 ml-6">
-          When enabled, QA capacity is derived from Dev capacity in the flow grid.
-        </p>
-      </section>
+      <div className="mb-8">
+        <CollapsibleSection
+          title="Team members"
+          subtitle="Names pulled from Jira. Toggle each member's role below."
+        >
+          <TeamMembersEditor team={team} />
+          <label className="flex items-center gap-2 mt-4 cursor-pointer w-fit">
+            <input
+              type="checkbox"
+              checked={team.devsAreQAs ?? false}
+              onChange={(e) => setDevsAreQAs(team.id, e.target.checked)}
+              className="w-4 h-4 rounded border-slate-300 cursor-pointer"
+            />
+            <span className="text-sm text-slate-700">Developers are also QAs</span>
+          </label>
+          <p className="text-xs text-slate-400 mt-1 ml-6">
+            When enabled, QA capacity is derived from Dev capacity in the flow grid.
+          </p>
+        </CollapsibleSection>
+      </div>
 
       {/* Cycle Times */}
-      <section className="mb-8">
-        <h2 className="text-sm font-semibold text-slate-700 uppercase mb-3">Cycle times</h2>
-        <p className="text-xs text-slate-400 mb-4">
-          Calculates average time spent in each workflow status from closed, completed issues with story
-          points. Data is scoped to this team.
-        </p>
-
+      <div className="mb-8">
+        <CollapsibleSection
+          title="Cycle times"
+          subtitle="Calculates average time spent in each workflow status from closed, completed issues with story points. Data is scoped to this team."
+        >
         {/* Days back + Recalculate */}
         <div className="flex items-center gap-3 mb-6">
           <div className="flex items-center gap-2">
@@ -345,7 +347,8 @@ export default function ConfigView({
           Derived from the phase assignment above. Edit individual values to override.
         </p>
         <CycleTimeEditor team={team} />
-      </section>
+        </CollapsibleSection>
+      </div>
 
       {/* Default Capacity */}
       <section className="mb-8">

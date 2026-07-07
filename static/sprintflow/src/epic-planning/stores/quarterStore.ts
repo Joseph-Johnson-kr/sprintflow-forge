@@ -2,13 +2,12 @@ import { create } from 'zustand';
 import type {
   Epic,
   Quarter,
-  QuarterName,
   Risk,
   RiskLevel,
+  RosterMember,
   TeamMember,
 } from '../types/quarter';
-import { QUARTER_DEFAULT_SPRINTS } from '../types/quarter';
-import type { TeamMemberConfig } from '../types';
+import { QUARTER_DEFAULT_SPRINTS, QUARTER_NAME_OPTIONS } from '../types/quarter';
 
 function uuid(): string {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -17,7 +16,8 @@ function uuid(): string {
 function makeDefaultEpic(): Epic {
   return {
     id: uuid(),
-    title: 'New Epic',
+    title: '',
+    issueKey: undefined,
     size: 'M',
     devAllocation: 1,
     risks: [],
@@ -32,14 +32,15 @@ interface QuarterState {
 
   getQuarters: (teamId: string) => Quarter[];
   selectQuarter: (id: string | null) => void;
-  addQuarter: (teamId: string, name: QuarterName, year: number) => string;
-  removeQuarter: (teamId: string, quarterId: string) => void;
+  selectYear: (teamId: string, year: number) => void;
+  resetQuarter: (teamId: string, quarterId: string) => void;
   setSprintCount: (teamId: string, quarterId: string, count: number) => void;
+  setQuartersForTeam: (teamId: string, quarters: Quarter[]) => void;
 
   syncMembersFromTeam: (
     teamId: string,
     quarterId: string,
-    teamMembers: TeamMemberConfig[],
+    teamMembers: RosterMember[],
   ) => void;
   setAbsence: (
     teamId: string,
@@ -56,7 +57,7 @@ interface QuarterState {
     teamId: string,
     quarterId: string,
     epicId: string,
-    patch: Partial<Pick<Epic, 'title' | 'size' | 'devAllocation' | 'notes' | 'dependencies'>>,
+    patch: Partial<Pick<Epic, 'title' | 'issueKey' | 'size' | 'devAllocation' | 'notes' | 'dependencies'>>,
   ) => void;
   removeEpic: (teamId: string, quarterId: string, epicId: string) => void;
   moveEpicUp: (teamId: string, quarterId: string, epicId: string) => void;
@@ -116,40 +117,45 @@ export const useQuarterStore = create<QuarterState>()((set, get) => ({
 
       selectQuarter: (id) => set({ selectedQuarterId: id }),
 
-      addQuarter: (teamId, name, year) => {
-        const quarter: Quarter = {
-          id: uuid(),
-          name,
-          year,
-          sprintCount: QUARTER_DEFAULT_SPRINTS[name],
-          teamId,
-          members: [],
-          epics: [],
-        };
-        set((s) => ({
-          quartersByTeam: {
-            ...s.quartersByTeam,
-            [teamId]: [...(s.quartersByTeam[teamId] ?? []), quarter],
-          },
-          selectedQuarterId: quarter.id,
-        }));
-        return quarter.id;
-      },
-
-      removeQuarter: (teamId, quarterId) =>
+      selectYear: (teamId, year) =>
         set((s) => {
-          const quarters = (s.quartersByTeam[teamId] ?? []).filter(
-            (q) => q.id !== quarterId,
-          );
-          const selectedQuarterId =
-            s.selectedQuarterId === quarterId
-              ? (quarters[0]?.id ?? null)
-              : s.selectedQuarterId;
+          const existing = s.quartersByTeam[teamId] ?? [];
+          const existingForYear = existing.filter((q) => q.year === year);
+          const existingNames = new Set(existingForYear.map((q) => q.name));
+          const created: Quarter[] = QUARTER_NAME_OPTIONS.filter(
+            (name) => !existingNames.has(name),
+          ).map((name) => ({
+            id: uuid(),
+            name,
+            year,
+            sprintCount: QUARTER_DEFAULT_SPRINTS[name],
+            teamId,
+            members: [],
+            epics: [],
+          }));
+          const quarters = [...existing, ...created];
+
+          const currentlySelected = existing.find((q) => q.id === s.selectedQuarterId);
+          const preferredName = currentlySelected?.name ?? existingForYear[0]?.name ?? 'Q1';
+          const nextSelected =
+            quarters.find((q) => q.year === year && q.name === preferredName) ??
+            quarters.find((q) => q.year === year);
+
           return {
             quartersByTeam: { ...s.quartersByTeam, [teamId]: quarters },
-            selectedQuarterId,
+            selectedQuarterId: nextSelected?.id ?? s.selectedQuarterId,
           };
         }),
+
+      resetQuarter: (teamId, quarterId) =>
+        set((s) =>
+          patchQuarter(s, teamId, quarterId, (q) => ({
+            ...q,
+            sprintCount: QUARTER_DEFAULT_SPRINTS[q.name],
+            epics: [],
+            members: q.members.map((m) => ({ ...m, absences: [] })),
+          })),
+        ),
 
       setSprintCount: (teamId, quarterId, count) =>
         set((s) =>
@@ -158,6 +164,11 @@ export const useQuarterStore = create<QuarterState>()((set, get) => ({
             sprintCount: Math.max(1, Math.floor(count)),
           })),
         ),
+
+      setQuartersForTeam: (teamId, quarters) =>
+        set((s) => ({
+          quartersByTeam: { ...s.quartersByTeam, [teamId]: quarters },
+        })),
 
       syncMembersFromTeam: (teamId, quarterId, teamMembers) =>
         set((s) =>
