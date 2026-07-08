@@ -8,6 +8,7 @@ import type {
   TeamMember,
 } from '../types/quarter';
 import { QUARTER_DEFAULT_SPRINTS, QUARTER_NAME_OPTIONS } from '../types/quarter';
+import type { MemberRole } from '../../types';
 
 function uuid(): string {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -20,6 +21,7 @@ function makeDefaultEpic(): Epic {
     issueKey: undefined,
     size: 'M',
     devAllocation: 1,
+    qaAllocation: 1,
     risks: [],
     dependencies: [],
     notes: '',
@@ -42,6 +44,11 @@ interface QuarterState {
     quarterId: string,
     teamMembers: RosterMember[],
   ) => void;
+  setMemberRoleAcrossQuarters: (
+    teamId: string,
+    memberId: string,
+    role: MemberRole,
+  ) => void;
   setAbsence: (
     teamId: string,
     quarterId: string,
@@ -57,7 +64,7 @@ interface QuarterState {
     teamId: string,
     quarterId: string,
     epicId: string,
-    patch: Partial<Pick<Epic, 'title' | 'issueKey' | 'size' | 'devAllocation' | 'notes' | 'dependencies'>>,
+    patch: Partial<Pick<Epic, 'title' | 'issueKey' | 'size' | 'devAllocation' | 'qaAllocation' | 'notes' | 'dependencies'>>,
   ) => void;
   removeEpic: (teamId: string, quarterId: string, epicId: string) => void;
   moveEpicUp: (teamId: string, quarterId: string, epicId: string) => void;
@@ -178,12 +185,23 @@ export const useQuarterStore = create<QuarterState>()((set, get) => ({
                 (m) => m.id === tm.id || m.name === tm.name,
               );
               return existing
-                ? { ...existing, id: tm.id, name: tm.name }
-                : { id: tm.id, name: tm.name, absences: [] };
+                ? { ...existing, id: tm.id, name: tm.name, role: tm.role }
+                : { id: tm.id, name: tm.name, role: tm.role, absences: [] };
             });
             return { ...q, members: synced };
           }),
         ),
+
+      setMemberRoleAcrossQuarters: (teamId, memberId, role) =>
+        set((s) => {
+          const quarters = s.quartersByTeam[teamId] ?? [];
+          return {
+            quartersByTeam: {
+              ...s.quartersByTeam,
+              [teamId]: quarters.map((q) => patchMember(q, memberId, (m) => ({ ...m, role }))),
+            },
+          };
+        }),
 
       setAbsence: (teamId, quarterId, memberId, sprintNumber, days) =>
         set((s) =>

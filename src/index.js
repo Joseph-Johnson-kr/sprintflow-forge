@@ -423,4 +423,127 @@ function mapTshirtSize(rawField) {
   return TSHIRT_SIZES.find((s) => s.toLowerCase() === value.trim().toLowerCase());
 }
 
+resolver.define('getEpicStatuses', async (req) => {
+  const { projectKey } = req.payload;
+
+  const statusRes = await api.asApp().requestJira(route`/rest/api/3/project/${projectKey}/statuses`);
+  const statusData = await statusRes.json();
+
+  const epicStatuses = (Array.isArray(statusData) ? statusData : []).find(
+    (issueType) => issueType.name === 'Epic',
+  );
+
+  const all = epicStatuses?.statuses ?? [];
+  let result = all
+    .filter((s) => s.statusCategory?.key === 'indeterminate')
+    .map((s) => ({ id: s.id, name: s.name }));
+
+  // Fallback: no in-progress-category statuses found — return everything so the UI isn't empty
+  if (result.length === 0) {
+    result = all.map((s) => ({ id: s.id, name: s.name }));
+  }
+
+  console.log(`[SprintFlow] getEpicStatuses: ${result.length} Epic workflow statuses`);
+  return result;
+});
+
+// Fixed calendar-quarter boundaries — Epic quarters (`Quarter` in quarter.ts) carry no stored
+// calendar dates today, so the Epic cycle-time lookback uses this convention instead.
+function calendarQuarterRange(year, quarter) {
+  const ranges = {
+    Q1: ['01-01', '03-31'],
+    Q2: ['04-01', '06-30'],
+    Q3: ['07-01', '09-30'],
+    Q4: ['10-01', '12-31'],
+  };
+  const [startMD, endMD] = ranges[quarter] ?? ranges.Q1;
+  return { start: `${year}-${startMD}`, end: `${year}-${endMD}` };
+}
+
+resolver.define('getEpicCycleTimes', async (req) => {
+  const { projectKey, teamId, year, quarter } = req.payload;
+  if (!projectKey) return null;
+
+  const { start, end } = calendarQuarterRange(year, quarter);
+
+  const jql =
+    teamId && teamId !== projectKey
+      ? `project = ${projectKey} AND issuetype = Epic AND "Team[Team]" = ${teamId} AND statusCategory = Done AND updated >= "${start}" AND updated <= "${end}" ORDER BY updated DESC`
+      : `project = ${projectKey} AND issuetype = Epic AND statusCategory = Done AND updated >= "${start}" AND updated <= "${end}" ORDER BY updated DESC`;
+
+  const searchRes = await api.asUser().requestJira(route`/rest/api/3/search/jql`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      jql,
+      fields: ['customfield_10269'],
+      expand: 'changelog',
+      maxResults: 200,
+    }),
+  });
+  const searchData = await searchRes.json();
+
+  if (!searchData.issues?.length) {
+    console.log(`[SprintFlow] getEpicCycleTimes: no epics found (HTTP ${searchRes.status}) JQL: ${jql}`);
+    if (searchData.errorMessages?.length || Object.keys(searchData.errors ?? {}).length) {
+      console.error('[SprintFlow] getEpicCycleTimes error body:', JSON.stringify(searchData).slice(0, 500));
+    }
+    return null;
+  }
+
+  console.log(`[SprintFlow] getEpicCycleTimes: ${searchData.issues.length} epics for ${quarter} ${year}`);
+
+  // T-shirt size -> statusName -> [days] accumulated across all epics
+  const buckets = {};
+
+  for (const issue of searchData.issues) {
+    const size = mapTshirtSize(issue.fields?.customfield_10269);
+    if (!size) continue;
+
+    const histories = [...(issue.changelog?.histories ?? [])].sort(
+      (a, b) => new Date(a.created) - new Date(b.created),
+    );
+
+    const statusTimings = {};
+    let currentStatus = null;
+    let lastTime = null;
+
+    for (const history of histories) {
+      for (const item of history.items ?? []) {
+        if (item.field !== 'status') continue;
+        const ts = new Date(history.created);
+        if (currentStatus && lastTime) {
+          const elapsed = (ts - lastTime) / 86400000;
+          statusTimings[currentStatus] = (statusTimings[currentStatus] ?? 0) + elapsed;
+        }
+        currentStatus = item.toString;
+        lastTime = ts;
+      }
+    }
+    // Time after the last transition (epic is Done) is intentionally not counted
+
+    if (!buckets[size]) buckets[size] = {};
+    for (const [statusName, elapsedDays] of Object.entries(statusTimings)) {
+      if (!buckets[size][statusName]) buckets[size][statusName] = [];
+      buckets[size][statusName].push(elapsedDays);
+    }
+  }
+
+  if (Object.keys(buckets).length === 0) {
+    console.log('[SprintFlow] getEpicCycleTimes: no status transition data found');
+    return null;
+  }
+
+  const result = {};
+  for (const [size, statusArrays] of Object.entries(buckets)) {
+    result[size] = {};
+    for (const [statusName, daysList] of Object.entries(statusArrays)) {
+      const avg = Math.round(daysList.reduce((a, b) => a + b, 0) / daysList.length);
+      if (avg > 0) result[size][statusName] = avg;
+    }
+    console.log(`[SprintFlow] getEpicCycleTimes: size=${size}`, JSON.stringify(result[size]));
+  }
+  return result;
+});
+
 export const handler = resolver.getDefinitions();

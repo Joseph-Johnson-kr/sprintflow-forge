@@ -199,6 +199,22 @@ function EpicRow({ teamId, quarter, epic, index, isFirst, isLast, backlogEpics }
           />
         </div>
 
+        {/* QA allocation */}
+        <div className="flex items-center gap-1 shrink-0">
+          <span className="text-xs text-slate-500">QA:</span>
+          <input
+            type="number"
+            min={1}
+            value={epic.qaAllocation}
+            onChange={(e) =>
+              updateEpic(teamId, quarter.id, epic.id, {
+                qaAllocation: Math.max(1, Number(e.target.value) || 1),
+              })
+            }
+            className="w-14 text-sm border border-slate-200 rounded px-2 py-1.5 text-center"
+          />
+        </div>
+
         {/* Risks badge */}
         <button
           onClick={() => setShowRisks((v) => !v)}

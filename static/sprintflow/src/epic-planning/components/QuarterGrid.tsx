@@ -48,7 +48,7 @@ export default function QuarterGrid({ quarter }: Props) {
   const showEpics = gridView === 'epics' || gridView === 'both';
   const showMembers = gridView === 'members' || gridView === 'both';
 
-  const colSpanFull = 3 + quarter.sprintCount;
+  const colSpanFull = 4 + quarter.sprintCount;
 
   return (
     <div>
@@ -86,6 +86,9 @@ export default function QuarterGrid({ quarter }: Props) {
               <th className="text-left text-xs font-semibold text-slate-500 py-2 pr-3 w-12">
                 Devs
               </th>
+              <th className="text-left text-xs font-semibold text-slate-500 py-2 pr-3 w-12">
+                QA
+              </th>
               {sprints.map((s) => (
                 <th
                   key={s}
@@ -111,7 +114,7 @@ export default function QuarterGrid({ quarter }: Props) {
             )}
 
             {showEpics &&
-              schedules.map(({ epic, startSprint, endSprint, fits }) => {
+              schedules.map(({ epic, startSprint, endSprint, fits, workedSprints }) => {
                 const durationSprints = Math.ceil(TSHIRT_SPRINT_DURATIONS[epic.size]);
                 return (
                   <tr
@@ -149,14 +152,26 @@ export default function QuarterGrid({ quarter }: Props) {
                       {epic.devAllocation}
                     </td>
 
+                    <td className="py-2 pr-3 text-center text-xs text-slate-600">
+                      {epic.qaAllocation}
+                    </td>
+
                     {sprints.map((s) => {
                       const isActive = fits && s >= startSprint && s <= endSprint;
-                      const isXsPartial = epic.size === 'XS' && isActive;
+                      const isGap = isActive && !workedSprints.includes(s);
+                      const isXsPartial = epic.size === 'XS' && isActive && !isGap;
                       let cellClass = 'bg-slate-50 text-slate-300';
                       let cellContent: React.ReactNode = null;
 
                       if (!fits) {
                         cellClass = 'bg-red-50';
+                      } else if (isGap) {
+                        cellClass = 'bg-slate-50 text-slate-300';
+                        cellContent = (
+                          <span className="text-[10px]" title="No team capacity this sprint — Epic pauses">
+                            ·
+                          </span>
+                        );
                       } else if (isActive) {
                         cellClass = SIZE_COLORS[epic.size];
                         const isFirst = s === startSprint;
@@ -227,7 +242,8 @@ export default function QuarterGrid({ quarter }: Props) {
                       <span className="text-xs text-slate-500 font-medium">{totalAvail}d</span>
                     </td>
 
-                    {/* Devs column — blank for members */}
+                    {/* Devs / QA columns — blank for members */}
+                    <td className="py-2 pr-3" />
                     <td className="py-2 pr-3" />
 
                     {/* Per-sprint availability cells */}
@@ -257,7 +273,7 @@ export default function QuarterGrid({ quarter }: Props) {
 
             {/* ── Capacity metric rows ──────────────────────────────── */}
             <tr className="border-t-2 border-slate-300 bg-slate-50">
-              <td colSpan={3} className="py-1.5 pr-4 text-xs font-semibold text-slate-500">
+              <td colSpan={4} className="py-1.5 pr-4 text-xs font-semibold text-slate-500">
                 Avail Dev-Days / Sprint
               </td>
               {sprintMetrics.map((m) => (
@@ -268,7 +284,7 @@ export default function QuarterGrid({ quarter }: Props) {
             </tr>
 
             <tr className="bg-slate-50">
-              <td colSpan={3} className="py-1.5 pr-4 text-xs font-semibold text-slate-500">
+              <td colSpan={4} className="py-1.5 pr-4 text-xs font-semibold text-slate-500">
                 Used Dev-Days / Sprint
               </td>
               {sprintMetrics.map((m) => (
@@ -279,8 +295,8 @@ export default function QuarterGrid({ quarter }: Props) {
             </tr>
 
             <tr className="bg-slate-50">
-              <td colSpan={3} className="py-1.5 pr-4 text-xs font-semibold text-slate-500">
-                Utilization
+              <td colSpan={4} className="py-1.5 pr-4 text-xs font-semibold text-slate-500">
+                Dev Utilization
               </td>
               {sprintMetrics.map((m) => (
                 <td key={m.sprintNumber} className="px-1 py-1.5">
@@ -289,6 +305,49 @@ export default function QuarterGrid({ quarter }: Props) {
                       className={`h-6 rounded flex items-center justify-center text-xs font-medium ${utilizationColor(m.utilizationRatio)}`}
                     >
                       {formatUtilization(m.utilizationRatio)}
+                    </div>
+                  ) : (
+                    <div className="h-6 flex items-center justify-center text-xs text-slate-300">
+                      —
+                    </div>
+                  )}
+                </td>
+              ))}
+            </tr>
+
+            <tr className="border-t-2 border-slate-300 bg-slate-50">
+              <td colSpan={4} className="py-1.5 pr-4 text-xs font-semibold text-slate-500">
+                Avail QA-Days / Sprint
+              </td>
+              {sprintMetrics.map((m) => (
+                <td key={m.sprintNumber} className="px-1 py-1.5 text-center text-xs text-slate-600">
+                  {m.totalCapacityQADays > 0 ? `${m.totalCapacityQADays}d` : '—'}
+                </td>
+              ))}
+            </tr>
+
+            <tr className="bg-slate-50">
+              <td colSpan={4} className="py-1.5 pr-4 text-xs font-semibold text-slate-500">
+                Used QA-Days / Sprint
+              </td>
+              {sprintMetrics.map((m) => (
+                <td key={m.sprintNumber} className="px-1 py-1.5 text-center text-xs text-slate-600">
+                  {m.usedCapacityQADays > 0 ? `${m.usedCapacityQADays}d` : '—'}
+                </td>
+              ))}
+            </tr>
+
+            <tr className="bg-slate-50">
+              <td colSpan={4} className="py-1.5 pr-4 text-xs font-semibold text-slate-500">
+                QA Utilization
+              </td>
+              {sprintMetrics.map((m) => (
+                <td key={m.sprintNumber} className="px-1 py-1.5">
+                  {m.totalCapacityQADays > 0 ? (
+                    <div
+                      className={`h-6 rounded flex items-center justify-center text-xs font-medium ${utilizationColor(m.qaUtilizationRatio)}`}
+                    >
+                      {formatUtilization(m.qaUtilizationRatio)}
                     </div>
                   ) : (
                     <div className="h-6 flex items-center justify-center text-xs text-slate-300">

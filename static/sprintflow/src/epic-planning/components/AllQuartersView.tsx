@@ -216,10 +216,11 @@ export default function AllQuartersView({ quarters }: Props) {
                         }
 
                         const { epic, schedule } = entry;
-                        const { startSprint, endSprint, fits } = schedule;
+                        const { startSprint, endSprint, fits, workedSprints } = schedule;
                         const durationSprints = Math.ceil(TSHIRT_SPRINT_DURATIONS[epic.size]);
                         const isActive = fits && s >= startSprint && s <= endSprint;
-                        const isXsPartial = epic.size === 'XS' && isActive;
+                        const isGap = isActive && !workedSprints.includes(s);
+                        const isXsPartial = epic.size === 'XS' && isActive && !isGap;
                         const isFirstOfBlock = s === block.sprints[0];
 
                         let cellClass = 'bg-slate-50 text-slate-300';
@@ -237,6 +238,13 @@ export default function AllQuartersView({ quarters }: Props) {
                               </span>
                             );
                           }
+                        } else if (isGap) {
+                          cellClass = 'bg-slate-50 text-slate-300';
+                          cellContent = (
+                            <span className="text-[10px]" title="No team capacity this sprint — Epic pauses">
+                              ·
+                            </span>
+                          );
                         } else if (isActive) {
                           cellClass = SIZE_COLORS[epic.size];
                           const isFirst = s === startSprint;
@@ -372,7 +380,7 @@ export default function AllQuartersView({ quarters }: Props) {
             </tr>
 
             <tr className="bg-slate-50">
-              <td className="py-1.5 pr-4 text-xs font-semibold text-slate-500">Utilization</td>
+              <td className="py-1.5 pr-4 text-xs font-semibold text-slate-500">Dev Utilization</td>
               {blocks.map((block) =>
                 block.sprintMetrics.map((m, si) => (
                   <td
@@ -384,6 +392,66 @@ export default function AllQuartersView({ quarters }: Props) {
                         className={`h-6 rounded flex items-center justify-center text-xs font-medium ${utilizationColor(m.utilizationRatio)}`}
                       >
                         {formatUtilization(m.utilizationRatio)}
+                      </div>
+                    ) : (
+                      <div className="h-6 flex items-center justify-center text-xs text-slate-300">
+                        —
+                      </div>
+                    )}
+                  </td>
+                )),
+              )}
+            </tr>
+
+            <tr className="border-t-2 border-slate-300 bg-slate-50">
+              <td className="py-1.5 pr-4 text-xs font-semibold text-slate-500">
+                Avail QA-Days / Sprint
+              </td>
+              {blocks.map((block) =>
+                block.sprintMetrics.map((m, si) => (
+                  <td
+                    key={`${block.quarter.id}-${m.sprintNumber}`}
+                    className={`px-1 py-1.5 text-center text-xs text-slate-600 ${
+                      si === 0 ? 'border-l-2 border-slate-300' : ''
+                    }`}
+                  >
+                    {m.totalCapacityQADays > 0 ? `${m.totalCapacityQADays}d` : '—'}
+                  </td>
+                )),
+              )}
+            </tr>
+
+            <tr className="bg-slate-50">
+              <td className="py-1.5 pr-4 text-xs font-semibold text-slate-500">
+                Used QA-Days / Sprint
+              </td>
+              {blocks.map((block) =>
+                block.sprintMetrics.map((m, si) => (
+                  <td
+                    key={`${block.quarter.id}-${m.sprintNumber}`}
+                    className={`px-1 py-1.5 text-center text-xs text-slate-600 ${
+                      si === 0 ? 'border-l-2 border-slate-300' : ''
+                    }`}
+                  >
+                    {m.usedCapacityQADays > 0 ? `${m.usedCapacityQADays}d` : '—'}
+                  </td>
+                )),
+              )}
+            </tr>
+
+            <tr className="bg-slate-50">
+              <td className="py-1.5 pr-4 text-xs font-semibold text-slate-500">QA Utilization</td>
+              {blocks.map((block) =>
+                block.sprintMetrics.map((m, si) => (
+                  <td
+                    key={`${block.quarter.id}-${m.sprintNumber}`}
+                    className={`px-1 py-1.5 ${si === 0 ? 'border-l-2 border-slate-300' : ''}`}
+                  >
+                    {m.totalCapacityQADays > 0 ? (
+                      <div
+                        className={`h-6 rounded flex items-center justify-center text-xs font-medium ${utilizationColor(m.qaUtilizationRatio)}`}
+                      >
+                        {formatUtilization(m.qaUtilizationRatio)}
                       </div>
                     ) : (
                       <div className="h-6 flex items-center justify-center text-xs text-slate-300">

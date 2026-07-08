@@ -54,7 +54,12 @@ export default function MemberCapacity({ teamId, quarter }: Props) {
             return (
               <tr key={member.id} className="border-t border-slate-100">
                 <td className="py-1.5 pr-4 text-sm text-slate-700 font-medium">
-                  {member.name}
+                  <div className="flex items-center gap-2">
+                    {member.name}
+                    <span className="text-[10px] font-semibold uppercase text-slate-400 border border-slate-200 rounded px-1.5 py-0.5">
+                      {member.role}
+                    </span>
+                  </div>
                 </td>
                 {sprints.map((s) => {
                   const days = getAbsenceDays(member, s);
@@ -87,13 +92,35 @@ export default function MemberCapacity({ teamId, quarter }: Props) {
             );
           })}
 
-          {/* Total row */}
+          {/* Total rows */}
           <tr className="border-t border-slate-200 bg-slate-50">
             <td className="py-1.5 pr-4 text-xs font-semibold text-slate-500">
               Available Devs / Sprint
             </td>
             {sprints.map((s) => {
               const avail = members.reduce((sum, m) => {
+                if (m.role !== 'dev' && m.role !== 'both') return sum;
+                const days = getAbsenceDays(m, s);
+                return sum + (days >= 10 ? 0 : 1);
+              }, 0);
+              return (
+                <td
+                  key={s}
+                  className="px-2 py-1.5 text-center text-xs font-medium text-slate-700"
+                >
+                  {avail}
+                </td>
+              );
+            })}
+            <td />
+          </tr>
+          <tr className="bg-slate-50">
+            <td className="py-1.5 pr-4 text-xs font-semibold text-slate-500">
+              Available QA / Sprint
+            </td>
+            {sprints.map((s) => {
+              const avail = members.reduce((sum, m) => {
+                if (m.role !== 'qa' && m.role !== 'both') return sum;
                 const days = getAbsenceDays(m, s);
                 return sum + (days >= 10 ? 0 : 1);
               }, 0);

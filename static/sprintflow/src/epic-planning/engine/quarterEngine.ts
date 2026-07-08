@@ -6,21 +6,42 @@ import type {
   SprintMetrics,
 } from '../types/quarter';
 import { TSHIRT_SPRINT_DURATIONS } from '../types/quarter';
+import type { MemberRole } from '../../types';
 
 const DEFAULT_SPRINT_LENGTH_DAYS = 10;
+
+const DEV_ROLES = new Set<MemberRole>(['dev', 'both']);
+const QA_ROLES = new Set<MemberRole>(['qa', 'both']);
+
+function computeSprintCapacityForRoles(
+  quarter: Quarter,
+  roles: Set<MemberRole>,
+  sprintLengthDays: number,
+): number[] {
+  return Array.from({ length: quarter.sprintCount }, (_, i) => {
+    const sprintNumber = i + 1;
+    return quarter.members
+      .filter((member) => roles.has(member.role))
+      .reduce((total, member) => {
+        const absence = member.absences.find((a) => a.sprintNumber === sprintNumber);
+        const daysOut = absence?.days ?? 0;
+        return total + Math.max(0, sprintLengthDays - daysOut);
+      }, 0);
+  });
+}
 
 export function computeSprintCapacityDevDays(
   quarter: Quarter,
   sprintLengthDays = DEFAULT_SPRINT_LENGTH_DAYS,
 ): number[] {
-  return Array.from({ length: quarter.sprintCount }, (_, i) => {
-    const sprintNumber = i + 1;
-    return quarter.members.reduce((total, member) => {
-      const absence = member.absences.find((a) => a.sprintNumber === sprintNumber);
-      const daysOut = absence?.days ?? 0;
-      return total + Math.max(0, sprintLengthDays - daysOut);
-    }, 0);
-  });
+  return computeSprintCapacityForRoles(quarter, DEV_ROLES, sprintLengthDays);
+}
+
+export function computeSprintCapacityQADays(
+  quarter: Quarter,
+  sprintLengthDays = DEFAULT_SPRINT_LENGTH_DAYS,
+): number[] {
+  return computeSprintCapacityForRoles(quarter, QA_ROLES, sprintLengthDays);
 }
 
 function topologicalSort(epics: Epic[]): Epic[] {
@@ -42,17 +63,98 @@ function topologicalSort(epics: Epic[]): Epic[] {
   return result;
 }
 
+function unfitSchedule(epic: Epic): EpicSchedule {
+  return {
+    epic,
+    startSprint: -1,
+    endSprint: -1,
+    fits: false,
+    workedSprints: [],
+  };
+}
+
+/**
+ * True when the team's total capacity that sprint — before any other Epic's
+ * claim on it — isn't even enough to cover a full sprint of THIS Epic's rate.
+ * That's a team-wide shortfall (absences, a holiday sprint, understaffing),
+ * not competition with other work, so it's treated as a pause rather than
+ * something that should push the Epic's whole start later.
+ */
+function isCapacityShortfallSprint(
+  totalDevCapacity: number,
+  totalQACapacity: number,
+  devDaysPerSprint: number,
+  qaDaysPerSprint: number,
+): boolean {
+  return totalDevCapacity < devDaysPerSprint || totalQACapacity < qaDaysPerSprint;
+}
+
+interface EpicWindowWalk {
+  workedSprints: number[];
+}
+
+/**
+ * Walks forward sprint-by-sprint from `start`, claiming `durationSprints` worth of
+ * actual working sprints. A sprint whose total team capacity can't cover this
+ * Epic's rate at all (see isCapacityShortfallSprint) is skipped transparently and
+ * doesn't count toward the duration, so an Epic can start before it and resume
+ * after instead of having its whole start pushed past it. A sprint where the team
+ * *would* have enough capacity but it's already claimed by other Epics (genuine
+ * contention) fails the whole attempt, so the caller falls back to a later `start`.
+ */
+function walkEpicWindow(
+  start: number,
+  durationSprints: number,
+  devDaysPerSprint: number,
+  qaDaysPerSprint: number,
+  totalDevCapacity: number[],
+  totalQACapacity: number[],
+  remainingDevCapacity: number[],
+  remainingQACapacity: number[],
+  sprintCount: number,
+): EpicWindowWalk | null {
+  const workedSprints: number[] = [];
+  let s = start;
+  while (workedSprints.length < durationSprints) {
+    if (s > sprintCount) return null;
+    const idx = s - 1;
+    if (
+      isCapacityShortfallSprint(totalDevCapacity[idx], totalQACapacity[idx], devDaysPerSprint, qaDaysPerSprint)
+    ) {
+      s++;
+      continue;
+    }
+    if (remainingDevCapacity[idx] < devDaysPerSprint || remainingQACapacity[idx] < qaDaysPerSprint) {
+      return null;
+    }
+    workedSprints.push(s);
+    s++;
+  }
+  return { workedSprints };
+}
+
+/**
+ * T-shirt size is the Epic's total sprint span. Dev and QA allocations don't
+ * extend that span — they're separate capacity pools that both have to have
+ * enough room across the same window for the Epic to "fit". An Epic isn't
+ * schedulable in a window unless the team has enough Dev hours AND enough QA
+ * hours available in it, so a "done" date reflects QA having had room to test,
+ * not just Dev having had room to build.
+ */
 export function buildQuarterForecast(
   quarter: Quarter,
   sprintLengthDays = DEFAULT_SPRINT_LENGTH_DAYS,
 ): QuarterForecast {
-  const totalCapacity = computeSprintCapacityDevDays(quarter, sprintLengthDays);
-  const remainingCapacity = [...totalCapacity];
-  const usedCapacity = Array<number>(quarter.sprintCount).fill(0);
+  const totalDevCapacity = computeSprintCapacityDevDays(quarter, sprintLengthDays);
+  const totalQACapacity = computeSprintCapacityQADays(quarter, sprintLengthDays);
+  const remainingDevCapacity = [...totalDevCapacity];
+  const remainingQACapacity = [...totalQACapacity];
+  const usedDevCapacity = Array<number>(quarter.sprintCount).fill(0);
+  const usedQACapacity = Array<number>(quarter.sprintCount).fill(0);
 
   const sorted = topologicalSort(quarter.epics);
   const rawSchedules = new Map<string, EpicSchedule>();
-  const epicEndSprint: Record<string, number> = {};
+  const epicDoneSprint: Record<string, number> = {};
 
   for (const epic of sorted) {
     const durationSprints = Math.ceil(TSHIRT_SPRINT_DURATIONS[epic.size]);
@@ -60,42 +162,61 @@ export function buildQuarterForecast(
       epic.size === 'XS'
         ? epic.devAllocation * (sprintLengthDays / 2)
         : epic.devAllocation * sprintLengthDays;
+    const qaDaysPerSprint =
+      epic.size === 'XS'
+        ? epic.qaAllocation * (sprintLengthDays / 2)
+        : epic.qaAllocation * sprintLengthDays;
 
     const minStart = epic.dependencies.reduce((max, depId) => {
-      const end = epicEndSprint[depId];
+      const end = epicDoneSprint[depId];
       return end !== undefined ? Math.max(max, end + 1) : max;
     }, 1);
 
-    let startSprint = minStart;
-    let found = false;
-
-    while (startSprint + durationSprints - 1 <= quarter.sprintCount) {
-      const endSprint = startSprint + durationSprints - 1;
-      let fits = true;
-      for (let s = startSprint; s <= endSprint; s++) {
-        if (remainingCapacity[s - 1] < devDaysPerSprint) {
-          fits = false;
-          break;
-        }
-      }
-      if (fits) {
-        found = true;
-        break;
-      }
-      startSprint++;
+    // Earliest window with enough remaining Dev+QA capacity in every *worked* sprint —
+    // sprints where the team's total capacity can't cover this Epic's rate at all are
+    // skipped rather than blocking the whole window (see walkEpicWindow).
+    let start = minStart;
+    let walk: EpicWindowWalk | null = null;
+    while (start <= quarter.sprintCount) {
+      walk = walkEpicWindow(
+        start,
+        durationSprints,
+        devDaysPerSprint,
+        qaDaysPerSprint,
+        totalDevCapacity,
+        totalQACapacity,
+        remainingDevCapacity,
+        remainingQACapacity,
+        quarter.sprintCount,
+      );
+      if (walk) break;
+      start++;
     }
 
-    if (found) {
-      const endSprint = startSprint + durationSprints - 1;
-      for (let s = startSprint; s <= endSprint; s++) {
-        remainingCapacity[s - 1] -= devDaysPerSprint;
-        usedCapacity[s - 1] += devDaysPerSprint;
-      }
-      rawSchedules.set(epic.id, { epic, startSprint, endSprint, fits: true });
-      epicEndSprint[epic.id] = endSprint;
-    } else {
-      rawSchedules.set(epic.id, { epic, startSprint: -1, endSprint: -1, fits: false });
+    if (!walk) {
+      rawSchedules.set(epic.id, unfitSchedule(epic));
+      continue;
     }
+
+    for (const s of walk.workedSprints) {
+      remainingDevCapacity[s - 1] -= devDaysPerSprint;
+      usedDevCapacity[s - 1] += devDaysPerSprint;
+      remainingQACapacity[s - 1] -= qaDaysPerSprint;
+      usedQACapacity[s - 1] += qaDaysPerSprint;
+    }
+
+    const workedSprints = walk.workedSprints;
+    const epicStart = workedSprints[0];
+    const end = workedSprints[workedSprints.length - 1];
+
+    rawSchedules.set(epic.id, {
+      epic,
+      startSprint: epicStart,
+      endSprint: end,
+      fits: true,
+      workedSprints,
+    });
+    epicDoneSprint[epic.id] = end;
   }
 
   // Restore user-defined ordering
@@ -105,10 +226,14 @@ export function buildQuarterForecast(
     { length: quarter.sprintCount },
     (_, i) => ({
       sprintNumber: i + 1,
-      totalCapacityDevDays: totalCapacity[i],
-      usedCapacityDevDays: usedCapacity[i],
+      totalCapacityDevDays: totalDevCapacity[i],
+      usedCapacityDevDays: usedDevCapacity[i],
       utilizationRatio:
-        totalCapacity[i] > 0 ? usedCapacity[i] / totalCapacity[i] : 0,
+        totalDevCapacity[i] > 0 ? usedDevCapacity[i] / totalDevCapacity[i] : 0,
+      totalCapacityQADays: totalQACapacity[i],
+      usedCapacityQADays: usedQACapacity[i],
+      qaUtilizationRatio:
+        totalQACapacity[i] > 0 ? usedQACapacity[i] / totalQACapacity[i] : 0,
     }),
   );
 

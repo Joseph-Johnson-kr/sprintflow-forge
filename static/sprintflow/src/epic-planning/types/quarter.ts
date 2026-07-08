@@ -1,3 +1,5 @@
+import type { MemberRole } from '../../types';
+
 export type TShirtSize = 'XS' | 'S' | 'M' | 'L' | 'XL' | 'Jumbo';
 
 export const TSHIRT_SPRINT_DURATIONS: Record<TShirtSize, number> = {
@@ -34,6 +36,7 @@ export interface Epic {
   issueKey?: string;
   size: TShirtSize;
   devAllocation: number;
+  qaAllocation: number;
   risks: Risk[];
   dependencies: string[];
   notes: string;
@@ -47,6 +50,29 @@ export interface BacklogEpicOption {
   suggestedSize?: TShirtSize;
 }
 
+/** An Epic-issue-type workflow status, as returned by the getEpicStatuses resolver. */
+export interface EpicStatusConfig {
+  id: string;
+  name: string;
+}
+
+export type EpicPhase = 'discovery' | 'inProgress' | 'acceptance';
+
+/**
+ * For review only — not yet consumed by quarterEngine's forecasting math.
+ * Maps each Epic workflow status name to one of the phases below.
+ */
+export interface EpicCycleTimeSettings {
+  discoveryStatuses: string[];
+  inProgressStatuses: string[];
+  acceptanceStatuses: string[];
+  year: number;
+  quarter: QuarterName;
+}
+
+/** T-shirt size -> statusName -> average whole days spent in that status */
+export type EpicDetailedCycleTimes = Partial<Record<TShirtSize, Record<string, number>>>;
+
 export interface MemberAbsence {
   sprintNumber: number;
   days: number;
@@ -55,6 +81,7 @@ export interface MemberAbsence {
 export interface TeamMember {
   id: string;
   name: string;
+  role: MemberRole;
   absences: MemberAbsence[];
 }
 
@@ -62,6 +89,7 @@ export interface TeamMember {
 export interface RosterMember {
   id: string;
   name: string;
+  role: MemberRole;
 }
 
 export type QuarterName = 'Q1' | 'Q2' | 'Q3' | 'Q4';
@@ -90,6 +118,13 @@ export interface EpicSchedule {
   startSprint: number;
   endSprint: number;
   fits: boolean;
+  /**
+   * Sprints within [startSprint, endSprint] that actually consumed Dev/QA capacity.
+   * Any sprint in that range NOT listed here is a skipped shortfall sprint (the team's
+   * total capacity that sprint can't cover this Epic's per-sprint rate, e.g. a holiday
+   * or widespread absences) — the Epic pauses through it rather than being pushed later.
+   */
+  workedSprints: number[];
 }
 
 export interface SprintMetrics {
@@ -97,6 +132,9 @@ export interface SprintMetrics {
   totalCapacityDevDays: number;
   usedCapacityDevDays: number;
   utilizationRatio: number;
+  totalCapacityQADays: number;
+  usedCapacityQADays: number;
+  qaUtilizationRatio: number;
 }
 
 export interface QuarterForecast {
