@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke, view } from '@forge/bridge';
 import { useTeamStore } from '../stores/teamStore';
-import { DEFAULT_CYCLE_TIMES, makeId } from '../utils/defaults';
+import { DEFAULT_CYCLE_TIMES, deriveDefaultCapacity, makeId } from '../utils/defaults';
 import type {
   BoardStatusConfig,
   CycleTimes,
@@ -193,10 +193,7 @@ export function useForgeData() {
           role: savedRoles[m.id] ?? m.role,
         }));
 
-        const defaultCapacity = {
-          devs: members.filter((m) => m.role === 'dev' || m.role === 'both').length,
-          qa: members.filter((m) => m.role === 'qa' || m.role === 'both').length,
-        };
+        const defaultCapacity = deriveDefaultCapacity(members);
 
         const name = fetchedTeamName || pKey || 'Team';
         setTeamName(name);
@@ -337,9 +334,15 @@ export function useForgeData() {
 
     const storyOverrides: Record<string, Partial<Story>> = {};
     for (const s of team.backlog) {
-      const { issueKey, startDay, rollover, override, overrideCells } = s;
-      if (startDay !== 1 || rollover || override || overrideCells.length > 0) {
-        storyOverrides[issueKey] = { startDay, rollover, override, overrideCells };
+      const { issueKey, startDay, rollover, override, overrideCells, dependencies } = s;
+      if (
+        startDay !== 1 ||
+        rollover ||
+        override ||
+        overrideCells.length > 0 ||
+        dependencies.length > 0
+      ) {
+        storyOverrides[issueKey] = { startDay, rollover, override, overrideCells, dependencies };
       }
     }
     storyOverridesRef.current = storyOverrides;

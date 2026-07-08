@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { CycleTime, CycleTimes, DailyCapacity, DetailedCycleTimes, MemberRole, Story, Team, TeamMemberConfig } from '../types';
-import { makeId } from '../utils/defaults';
+import { deriveDefaultCapacity, makeId } from '../utils/defaults';
 
 interface TeamState {
   teams: Team[];
@@ -29,6 +29,7 @@ interface TeamState {
 
   setBacklog: (teamId: string, backlog: Story[]) => void;
   updateStory: (teamId: string, issueKey: string, patch: Partial<Story>) => void;
+  applyStartDays: (teamId: string, startDays: Record<string, number>) => void;
   setRollover: (teamId: string, issueKey: string, value: boolean) => void;
   removeStory: (teamId: string, issueKey: string) => void;
   clearBacklog: (teamId: string) => void;
@@ -132,12 +133,12 @@ export const useTeamStore = create<TeamState>()((set) => ({
 
   updateMemberRole: (teamId, memberId, role) =>
     set((s) => ({
-      teams: updateTeam(s.teams, teamId, (t) => ({
-        ...t,
-        members: t.members.map((m): TeamMemberConfig =>
+      teams: updateTeam(s.teams, teamId, (t) => {
+        const members = t.members.map((m): TeamMemberConfig =>
           m.id === memberId ? { ...m, role } : m,
-        ),
-      })),
+        );
+        return { ...t, members, defaultCapacity: deriveDefaultCapacity(members) };
+      }),
     })),
 
   setCapacityOverride: (teamId, day, capacity) =>
@@ -161,6 +162,18 @@ export const useTeamStore = create<TeamState>()((set) => ({
         ...t,
         backlog: t.backlog.map((st) =>
           st.issueKey === issueKey ? { ...st, ...patch } : st,
+        ),
+      })),
+    })),
+
+  applyStartDays: (teamId, startDays) =>
+    set((s) => ({
+      teams: updateTeam(s.teams, teamId, (t) => ({
+        ...t,
+        backlog: t.backlog.map((st) =>
+          startDays[st.issueKey] !== undefined
+            ? { ...st, startDay: startDays[st.issueKey] }
+            : st,
         ),
       })),
     })),

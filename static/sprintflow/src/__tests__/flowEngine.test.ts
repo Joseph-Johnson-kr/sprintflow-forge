@@ -46,6 +46,17 @@ describe('flowEngine.computeStoryRow', () => {
     const row = computeStoryRow(makeStory({ storyPoints: 1, startDay: 0 }), team);
     expect(row.cells[0]).toBe('dev');
   });
+
+  it('pauses on an explicit 0-capacity day instead of shifting the whole phase later', () => {
+    // 2pt: dev=2, qa=1. Day 3 is a holiday (explicit override to 0).
+    const team = makeTeam({
+      sprintLength: 6,
+      defaultCapacity: { devs: 5, qa: 3 },
+      capacityOverrides: { 3: { devs: 0, qa: 0 } },
+    });
+    const row = computeStoryRow(makeStory({ storyPoints: 2, startDay: 1 }), team);
+    expect(row.cells).toEqual(['dev', 'dev', 'idle', 'qa', 'done', 'done']);
+  });
 });
 
 describe('flowEngine.buildFlowGrid', () => {

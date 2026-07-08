@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from 'react';
 import type { Story, Team, StoryStatus } from '../types';
 import { buildFlowGrid } from '../engine/flowEngine';
 import { computeDayMetrics, formatLoad, loadColor } from '../engine/metricsEngine';
+import { computeAutoSchedule } from '../engine/scheduleEngine';
 import { useTeamStore } from '../stores/teamStore';
 import { buildDayLabels } from '../utils/sprintDays';
 
@@ -44,6 +45,8 @@ export default function FlowGrid({ team }: Props) {
   const setRollover = useTeamStore((s) => s.setRollover);
   const moveStoryUp = useTeamStore((s) => s.moveStoryUp);
   const moveStoryDown = useTeamStore((s) => s.moveStoryDown);
+  const applyStartDays = useTeamStore((s) => s.applyStartDays);
+  const [overflowKeys, setOverflowKeys] = useState<string[]>([]);
   const grid = useMemo(() => buildFlowGrid(team), [team]);
   const metrics = useMemo(() => computeDayMetrics(grid, team), [grid, team]);
   const dayLabels = useMemo(
@@ -87,6 +90,12 @@ export default function FlowGrid({ team }: Props) {
     window.addEventListener('mouseup', onUp);
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
+  }
+
+  function handleAutoSchedule() {
+    const result = computeAutoSchedule(team);
+    applyStartDays(team.id, result.startDays);
+    setOverflowKeys(result.overflow);
   }
 
   function handleOverrideToggle(story: Story, enabled: boolean) {
@@ -147,7 +156,20 @@ export default function FlowGrid({ team }: Props) {
             {TOGGLE_LABELS[key]}
           </button>
         ))}
+        <button
+          onClick={handleAutoSchedule}
+          className="ml-auto text-xs px-3 py-1 rounded bg-slate-900 text-white hover:bg-slate-700"
+          title="Recompute start days for every non-override story based on dependencies and Dev/QA capacity"
+        >
+          Auto-schedule
+        </button>
       </div>
+      {overflowKeys.length > 0 && (
+        <div className="mb-2 text-xs px-3 py-1.5 rounded border border-amber-300 bg-amber-50 text-amber-800">
+          {overflowKeys.length} stor{overflowKeys.length > 1 ? 'ies' : 'y'} didn't fit this sprint's
+          capacity: {overflowKeys.join(', ')}
+        </div>
+      )}
     <div className="border border-slate-200 rounded bg-white overflow-x-auto">
       <table className="text-xs border-collapse">
         <thead>
@@ -185,6 +207,7 @@ export default function FlowGrid({ team }: Props) {
           {grid.rows.map((row, rowIndex) => {
             const override = row.story.override ?? false;
             const rollover = row.story.rollover ?? false;
+            const overflow = overflowKeys.includes(row.story.issueKey);
             return (
               <tr key={row.story.issueKey} className="border-b border-slate-100 group">
                 {/* Move controls */}
@@ -215,10 +238,14 @@ export default function FlowGrid({ team }: Props) {
                 {/* Story name */}
                 <td
                   className={`px-2 py-1 sticky z-10 truncate ${
-                    rollover ? 'bg-red-300 text-red-900' : 'bg-white'
+                    rollover
+                      ? 'bg-red-300 text-red-900'
+                      : overflow
+                        ? 'bg-amber-100 text-amber-900'
+                        : 'bg-white'
                   }`}
                   style={storyColStyle}
-                  title={row.story.summary}
+                  title={overflow ? "Doesn't fit this sprint's capacity" : row.story.summary}
                 >
                   <span className={`font-mono text-[10px] ${rollover ? 'text-red-800' : 'text-slate-500'}`}>
                     {row.story.issueKey}

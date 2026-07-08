@@ -1,4 +1,5 @@
 import type { FlowGridData, FlowRow, Story, StoryStatus, Team } from '../types';
+import { isDevHoliday, isQaHoliday } from './capacityDays';
 
 export function computeStoryRow(story: Story, team: Team): FlowRow {
   if (story.override) {
@@ -11,23 +12,38 @@ export function computeStoryRow(story: Story, team: Team): FlowRow {
 
   const cycle = team.cycleTimes[story.storyPoints];
   const hasCycleTime = !!cycle;
-  const devDays = cycle?.dev ?? 0;
-  const qaDays = cycle?.qa ?? 0;
+  let devRemaining = cycle?.dev ?? 0;
+  let qaRemaining = cycle?.qa ?? 0;
 
   const startDay = Math.max(1, Math.floor(story.startDay || 1));
-  const devEnd = startDay + devDays - 1;
-  const qaEnd = devEnd + qaDays;
 
   const cells: StoryStatus[] = [];
+  let devEnd = 0;
+  let qaEnd = 0;
+
   for (let d = 1; d <= team.sprintLength; d++) {
     if (!hasCycleTime) {
       cells.push('unknown');
     } else if (d < startDay) {
       cells.push('idle');
-    } else if (d <= devEnd) {
-      cells.push('dev');
-    } else if (d <= qaEnd) {
-      cells.push('qa');
+    } else if (devRemaining > 0) {
+      // A day-off (explicit 0 capacity override) pauses the phase without
+      // shifting it — the story just resumes on the next working day.
+      if (isDevHoliday(team, d)) {
+        cells.push('idle');
+      } else {
+        cells.push('dev');
+        devRemaining--;
+        devEnd = d;
+      }
+    } else if (qaRemaining > 0) {
+      if (isQaHoliday(team, d)) {
+        cells.push('idle');
+      } else {
+        cells.push('qa');
+        qaRemaining--;
+        qaEnd = d;
+      }
     } else {
       cells.push('done');
     }

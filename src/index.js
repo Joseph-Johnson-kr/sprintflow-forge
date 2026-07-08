@@ -64,6 +64,7 @@ function mapIssue(issue) {
     rollover: isRollover,
     override: false,
     overrideCells: [],
+    dependencies: [],
   };
 }
 

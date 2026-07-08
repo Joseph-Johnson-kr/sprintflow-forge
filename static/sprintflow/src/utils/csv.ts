@@ -92,6 +92,7 @@ export function parseCsv(text: string): Promise<CsvParseResult> {
             rollover: rawRollover === 'Y',
             override: false,
             overrideCells: [],
+            dependencies: [],
           });
         });
 

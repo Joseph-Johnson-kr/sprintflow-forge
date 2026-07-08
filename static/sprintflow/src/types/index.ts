@@ -34,6 +34,7 @@ export interface Story {
   rollover: boolean;
   override: boolean;
   overrideCells: StoryStatus[];
+  dependencies: string[];
 }
 
 export interface Team {
