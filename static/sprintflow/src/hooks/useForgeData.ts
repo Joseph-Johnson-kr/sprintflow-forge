@@ -172,10 +172,12 @@ export function useForgeData() {
 
         if (cancelled) return;
 
-        // Resolve cycle times: derived from detailed → saved flat → defaults
+        // Resolve cycle times: saved flat (may include manual overrides) → derived from
+        // detailed → defaults. Saved values take priority so a manual edit in the Flow
+        // grid estimates table survives reloads instead of being silently re-derived.
         const cycleTimes: CycleTimes =
-          (detailedCycleTimes ? deriveCycleTimes(detailedCycleTimes, settings) : null) ??
           config.cycleTimes ??
+          (detailedCycleTimes ? deriveCycleTimes(detailedCycleTimes, settings) : null) ??
           DEFAULT_CYCLE_TIMES;
 
         // Merge saved story overrides
