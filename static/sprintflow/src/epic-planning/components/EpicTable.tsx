@@ -1,5 +1,12 @@
 import { useState } from 'react';
-import type { BacklogEpicOption, Epic, Quarter, RiskLevel, TShirtSize } from '../types/quarter';
+import type {
+  BacklogEpicOption,
+  Epic,
+  PlanningVersionOption,
+  Quarter,
+  RiskLevel,
+  TShirtSize,
+} from '../types/quarter';
 import { TSHIRT_LABELS, TSHIRT_SIZE_OPTIONS } from '../types/quarter';
 import { useQuarterStore } from '../stores/quarterStore';
 
@@ -7,6 +14,8 @@ interface Props {
   teamId: string;
   quarter: Quarter;
   backlogEpics: BacklogEpicOption[];
+  quarterOptions: PlanningVersionOption[];
+  onAssignPlanningVersion: (issueKey: string, option: PlanningVersionOption, mode: 'add' | 'remove') => void;
 }
 
 const RISK_COLORS: Record<RiskLevel, string> = {
@@ -95,9 +104,21 @@ interface EpicRowProps {
   isFirst: boolean;
   isLast: boolean;
   backlogEpics: BacklogEpicOption[];
+  planningOption?: PlanningVersionOption;
+  onAssignPlanningVersion: (issueKey: string, option: PlanningVersionOption, mode: 'add' | 'remove') => void;
 }
 
-function EpicRow({ teamId, quarter, epic, index, isFirst, isLast, backlogEpics }: EpicRowProps) {
+function EpicRow({
+  teamId,
+  quarter,
+  epic,
+  index,
+  isFirst,
+  isLast,
+  backlogEpics,
+  planningOption,
+  onAssignPlanningVersion,
+}: EpicRowProps) {
   const updateEpic = useQuarterStore((s) => s.updateEpic);
   const removeEpic = useQuarterStore((s) => s.removeEpic);
   const moveEpicUp = useQuarterStore((s) => s.moveEpicUp);
@@ -119,7 +140,17 @@ function EpicRow({ teamId, quarter, epic, index, isFirst, isLast, backlogEpics }
       .filter((e) => e.id !== epic.id && e.issueKey)
       .map((e) => e.issueKey),
   );
-  const availableBacklogEpics = backlogEpics.filter((be) => !usedElsewhere.has(be.issueKey));
+  // Nothing is hidden — epics already tagged with this quarter's Planning Version
+  // in Jira are just sorted first and marked, so the picker still shows everything.
+  const availableBacklogEpics = backlogEpics
+    .filter((be) => !usedElsewhere.has(be.issueKey))
+    .slice()
+    .sort((a, b) => {
+      const aMatch = planningOption ? a.planningVersions.includes(planningOption.value) : false;
+      const bMatch = planningOption ? b.planningVersions.includes(planningOption.value) : false;
+      if (aMatch === bMatch) return 0;
+      return aMatch ? -1 : 1;
+    });
 
   return (
     <div className="border-t border-slate-100 py-2">
@@ -156,15 +187,22 @@ function EpicRow({ teamId, quarter, epic, index, isFirst, isLast, backlogEpics }
               // otherwise leave the current size selection untouched.
               ...(chosen?.suggestedSize ? { size: chosen.suggestedSize } : {}),
             });
+            if (key && planningOption) {
+              onAssignPlanningVersion(key, planningOption, 'add');
+            }
           }}
           className="flex-1 text-sm border border-slate-200 rounded px-2 py-1.5 bg-white hover:border-slate-300 focus:border-slate-400 focus:outline-none"
         >
           <option value="">{epic.title || 'Select an Epic…'}</option>
-          {availableBacklogEpics.map((be) => (
-            <option key={be.issueKey} value={be.issueKey}>
-              {be.issueKey} — {be.summary}
-            </option>
-          ))}
+          {availableBacklogEpics.map((be) => {
+            const isMatch = planningOption ? be.planningVersions.includes(planningOption.value) : false;
+            return (
+              <option key={be.issueKey} value={be.issueKey}>
+                {isMatch ? '★ ' : ''}
+                {be.issueKey} — {be.summary}
+              </option>
+            );
+          })}
         </select>
 
         {/* Size */}
@@ -273,6 +311,9 @@ function EpicRow({ teamId, quarter, epic, index, isFirst, isLast, backlogEpics }
         <button
           onClick={() => {
             if (window.confirm(`Remove "${epic.title}"?`)) {
+              if (epic.issueKey && planningOption) {
+                onAssignPlanningVersion(epic.issueKey, planningOption, 'remove');
+              }
               removeEpic(teamId, quarter.id, epic.id);
             }
           }}
@@ -340,8 +381,18 @@ function EpicRow({ teamId, quarter, epic, index, isFirst, isLast, backlogEpics }
   );
 }
 
-export default function EpicTable({ teamId, quarter, backlogEpics }: Props) {
+export default function EpicTable({
+  teamId,
+  quarter,
+  backlogEpics,
+  quarterOptions,
+  onAssignPlanningVersion,
+}: Props) {
   const addEpic = useQuarterStore((s) => s.addEpic);
+
+  const planningOption = quarterOptions.find(
+    (o) => o.year === quarter.year && o.quarter === quarter.name,
+  );
 
   return (
     <div>
@@ -361,6 +412,8 @@ export default function EpicTable({ teamId, quarter, backlogEpics }: Props) {
               isFirst={i === 0}
               isLast={i === (quarter.epics ?? []).length - 1}
               backlogEpics={backlogEpics}
+              planningOption={planningOption}
+              onAssignPlanningVersion={onAssignPlanningVersion}
             />
           ))}
         </div>

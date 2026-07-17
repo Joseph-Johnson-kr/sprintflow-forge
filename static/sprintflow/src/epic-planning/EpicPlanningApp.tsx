@@ -19,6 +19,8 @@ export default function App() {
     teamName,
     members,
     backlogEpics,
+    quarterOptions,
+    assignPlanningVersion,
     updateMemberRole,
     epicStatuses,
     epicCycleTimeSettings,
@@ -97,6 +99,7 @@ export default function App() {
               teamId={teamId}
               quarters={quarters}
               selected={selectedQuarter}
+              quarterOptions={quarterOptions}
               isAllView={isAllView}
               onAllViewChange={setIsAllView}
             />
@@ -113,7 +116,13 @@ export default function App() {
                       (selectedQuarter.epics ?? []).length !== 1 ? 's' : ''
                     } planned · set size, dev allocation, risks, and dependencies`}
                   >
-                    <EpicTable teamId={teamId} quarter={selectedQuarter} backlogEpics={backlogEpics} />
+                    <EpicTable
+                      teamId={teamId}
+                      quarter={selectedQuarter}
+                      backlogEpics={backlogEpics}
+                      quarterOptions={quarterOptions}
+                      onAssignPlanningVersion={assignPlanningVersion}
+                    />
                   </CollapsibleSection>
                   <CollapsibleSection
                     title="Team Capacity"

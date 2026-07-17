@@ -2,12 +2,13 @@ import { create } from 'zustand';
 import type {
   Epic,
   Quarter,
+  QuarterName,
   Risk,
   RiskLevel,
   RosterMember,
   TeamMember,
 } from '../types/quarter';
-import { QUARTER_DEFAULT_SPRINTS, QUARTER_NAME_OPTIONS } from '../types/quarter';
+import { QUARTER_DEFAULT_SPRINTS } from '../types/quarter';
 import type { MemberRole } from '../../types';
 
 function uuid(): string {
@@ -34,7 +35,7 @@ interface QuarterState {
 
   getQuarters: (teamId: string) => Quarter[];
   selectQuarter: (id: string | null) => void;
-  selectYear: (teamId: string, year: number) => void;
+  selectQuarterOption: (teamId: string, year: number, name: QuarterName) => void;
   resetQuarter: (teamId: string, quarterId: string) => void;
   setSprintCount: (teamId: string, quarterId: string, count: number) => void;
   setQuartersForTeam: (teamId: string, quarters: Quarter[]) => void;
@@ -124,14 +125,11 @@ export const useQuarterStore = create<QuarterState>()((set, get) => ({
 
       selectQuarter: (id) => set({ selectedQuarterId: id }),
 
-      selectYear: (teamId, year) =>
+      selectQuarterOption: (teamId, year, name) =>
         set((s) => {
           const existing = s.quartersByTeam[teamId] ?? [];
-          const existingForYear = existing.filter((q) => q.year === year);
-          const existingNames = new Set(existingForYear.map((q) => q.name));
-          const created: Quarter[] = QUARTER_NAME_OPTIONS.filter(
-            (name) => !existingNames.has(name),
-          ).map((name) => ({
+          const found = existing.find((q) => q.year === year && q.name === name);
+          const quarter: Quarter = found ?? {
             id: uuid(),
             name,
             year,
@@ -139,18 +137,13 @@ export const useQuarterStore = create<QuarterState>()((set, get) => ({
             teamId,
             members: [],
             epics: [],
-          }));
-          const quarters = [...existing, ...created];
-
-          const currentlySelected = existing.find((q) => q.id === s.selectedQuarterId);
-          const preferredName = currentlySelected?.name ?? existingForYear[0]?.name ?? 'Q1';
-          const nextSelected =
-            quarters.find((q) => q.year === year && q.name === preferredName) ??
-            quarters.find((q) => q.year === year);
-
+          };
           return {
-            quartersByTeam: { ...s.quartersByTeam, [teamId]: quarters },
-            selectedQuarterId: nextSelected?.id ?? s.selectedQuarterId,
+            quartersByTeam: {
+              ...s.quartersByTeam,
+              [teamId]: found ? existing : [...existing, quarter],
+            },
+            selectedQuarterId: quarter.id,
           };
         }),
 

@@ -48,6 +48,18 @@ export interface BacklogEpicOption {
   summary: string;
   /** T-shirt size from the Epic's "T-Shirt Size" Jira field (customfield_10269), when set. */
   suggestedSize?: TShirtSize;
+  /** Current values of the Epic's "Planning Version" Jira field (customfield_10212), e.g. "2026Q1". */
+  planningVersions: string[];
+}
+
+/** A configured Planning Version value (customfield_10212), as returned by getQuarterOptions. */
+export interface PlanningVersionOption {
+  /** Jira field-option/version id — used for write-back via updateEpicPlanningVersion. */
+  id: string;
+  /** Raw display value, e.g. "2026Q1". */
+  value: string;
+  year: number;
+  quarter: QuarterName;
 }
 
 /** An Epic-issue-type workflow status, as returned by the getEpicStatuses resolver. */

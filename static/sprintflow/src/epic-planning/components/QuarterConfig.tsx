@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { Quarter } from '../types/quarter';
+import type { PlanningVersionOption, Quarter } from '../types/quarter';
 import { QUARTER_NAME_OPTIONS } from '../types/quarter';
 import { useQuarterStore } from '../stores/quarterStore';
 
@@ -7,6 +7,7 @@ interface Props {
   teamId: string;
   quarters: Quarter[];
   selected: Quarter | null;
+  quarterOptions: PlanningVersionOption[];
   isAllView: boolean;
   onAllViewChange: (v: boolean) => void;
 }
@@ -15,15 +16,23 @@ const CURRENT_YEAR = new Date().getFullYear();
 const YEAR_OPTIONS = [CURRENT_YEAR - 1, CURRENT_YEAR, CURRENT_YEAR + 1, CURRENT_YEAR + 2];
 const ALL_VALUE = '__all__';
 
+function currentCalendarQuarter(): string {
+  const month = new Date().getMonth();
+  if (month < 3) return 'Q1';
+  if (month < 6) return 'Q2';
+  if (month < 9) return 'Q3';
+  return 'Q4';
+}
+
 export default function QuarterConfig({
   teamId,
   quarters,
   selected,
+  quarterOptions,
   isAllView,
   onAllViewChange,
 }: Props) {
-  const selectYear = useQuarterStore((s) => s.selectYear);
-  const selectQuarter = useQuarterStore((s) => s.selectQuarter);
+  const selectQuarterOption = useQuarterStore((s) => s.selectQuarterOption);
   const resetQuarter = useQuarterStore((s) => s.resetQuarter);
   const setSprintCount = useQuarterStore((s) => s.setSprintCount);
 
@@ -31,26 +40,19 @@ export default function QuarterConfig({
     () => selected?.year ?? quarters[0]?.year ?? CURRENT_YEAR,
   );
 
-  useEffect(() => {
-    const quartersForYear = quarters.filter((q) => q.year === selectedYear);
-    if (quartersForYear.length < QUARTER_NAME_OPTIONS.length) {
-      selectYear(teamId, selectedYear);
-      return;
-    }
-    if (!selected || selected.year !== selectedYear) {
-      const preferredName = selected?.name;
-      const next =
-        quartersForYear.find((q) => q.name === preferredName) ?? quartersForYear[0];
-      if (next) selectQuarter(next.id);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [teamId, selectedYear, quarters, selected]);
+  const optionsForYear = quarterOptions
+    .filter((o) => o.year === selectedYear)
+    .sort((a, b) => QUARTER_NAME_OPTIONS.indexOf(a.quarter) - QUARTER_NAME_OPTIONS.indexOf(b.quarter));
 
-  const quartersForYear = quarters
-    .filter((q) => q.year === selectedYear)
-    .sort(
-      (a, b) => QUARTER_NAME_OPTIONS.indexOf(a.name) - QUARTER_NAME_OPTIONS.indexOf(b.name),
-    );
+  useEffect(() => {
+    if (optionsForYear.length === 0) return;
+    if (selected && selected.year === selectedYear) return;
+    const thisQuarter = currentCalendarQuarter();
+    const preferred =
+      optionsForYear.find((o) => o.quarter === thisQuarter) ?? optionsForYear[0];
+    selectQuarterOption(teamId, preferred.year, preferred.quarter);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [teamId, selectedYear, optionsForYear, selected]);
 
   function handleReset() {
     if (!selected) return;
@@ -77,27 +79,40 @@ export default function QuarterConfig({
         ))}
       </select>
 
-      {quartersForYear.length > 0 && (
+      {optionsForYear.length > 0 ? (
         <select
-          value={isAllView ? ALL_VALUE : (selected?.id ?? '')}
+          value={
+            isAllView
+              ? ALL_VALUE
+              : selected && selected.year === selectedYear
+              ? `${selected.year}${selected.name}`
+              : ''
+          }
           onChange={(e) => {
             const value = e.target.value;
             if (value === ALL_VALUE) {
               onAllViewChange(true);
             } else {
-              onAllViewChange(false);
-              selectQuarter(value);
+              const option = optionsForYear.find((o) => o.value === value);
+              if (option) {
+                onAllViewChange(false);
+                selectQuarterOption(teamId, option.year, option.quarter);
+              }
             }
           }}
           className="text-sm border border-slate-300 rounded px-2 py-1.5 bg-white"
         >
-          {quartersForYear.map((q) => (
-            <option key={q.id} value={q.id}>
-              {q.name}
+          {optionsForYear.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.quarter}
             </option>
           ))}
           <option value={ALL_VALUE}>All</option>
         </select>
+      ) : (
+        <span className="text-sm text-slate-400 italic">
+          No Planning Versions found in Jira for {selectedYear}
+        </span>
       )}
 
       {!isAllView && selected && (

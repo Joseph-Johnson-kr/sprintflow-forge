@@ -400,7 +400,11 @@ resolver.define('getBacklogEpics', async (req) => {
   const res = await api.asUser().requestJira(route`/rest/api/3/search/jql`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ jql, fields: ['summary', 'customfield_10269'], maxResults: 100 }),
+    body: JSON.stringify({
+      jql,
+      fields: ['summary', 'customfield_10269', 'customfield_10212'],
+      maxResults: 100,
+    }),
   });
   const data = await res.json();
   const issues = data.issues ?? [];
@@ -410,6 +414,7 @@ resolver.define('getBacklogEpics', async (req) => {
     issueKey: i.key,
     summary: i.fields?.summary ?? i.key,
     suggestedSize: mapTshirtSize(i.fields?.customfield_10269),
+    planningVersions: mapPlanningVersions(i.fields?.customfield_10212),
   }));
 });
 
@@ -422,6 +427,62 @@ function mapTshirtSize(rawField) {
   if (typeof value !== 'string') return undefined;
   return TSHIRT_SIZES.find((s) => s.toLowerCase() === value.trim().toLowerCase());
 }
+
+// customfield_10212 ("Planning Version") is multi-valued — normalize to an array
+// regardless of whether Jira returns a single object, an array, or null/undefined.
+function mapPlanningVersions(raw) {
+  const arr = Array.isArray(raw) ? raw : raw ? [raw] : [];
+  return arr.map((v) => v?.value ?? v?.name ?? v).filter((v) => typeof v === 'string');
+}
+
+resolver.define('getQuarterOptions', async (req) => {
+  const { projectKey } = req.payload;
+  if (!projectKey) return [];
+
+  const statusRes = await api.asApp().requestJira(route`/rest/api/3/project/${projectKey}/statuses`);
+  const statusData = await statusRes.json();
+  const epicType = (Array.isArray(statusData) ? statusData : []).find((t) => t.name === 'Epic');
+  if (!epicType) return [];
+
+  // asUser() so the logged-in user's project permissions apply — issue/createmeta
+  // is scoped to what fields the acting user can set on create, and returns an
+  // empty field list under app auth.
+  const metaRes = await api.asUser().requestJira(
+    route`/rest/api/3/issue/createmeta/${projectKey}/issuetypes/${epicType.id}?maxResults=200`,
+  );
+  const metaData = await metaRes.json();
+  // This endpoint's actual response nests fields under "fields", not "values" as the
+  // Jira REST API docs describe for this route.
+  const field = (metaData.fields ?? []).find((f) => f.fieldId === 'customfield_10212');
+
+  const options = [];
+  for (const v of field?.allowedValues ?? []) {
+    const label = v.name ?? v.value;
+    if (typeof label !== 'string') continue;
+    const match = label.trim().match(/^(\d{4})(Q[1-4])$/);
+    if (!match) continue;
+    options.push({ id: v.id, value: match[0], year: Number(match[1]), quarter: match[2] });
+  }
+  options.sort((a, b) => a.year - b.year || a.quarter.localeCompare(b.quarter));
+  console.log(`[SprintFlow] getQuarterOptions: ${options.length} Planning Version options`);
+  return options;
+});
+
+resolver.define('updateEpicPlanningVersion', async (req) => {
+  const { issueKey, optionId, mode } = req.payload;
+  if (!issueKey || !optionId) return { ok: false };
+  const op = mode === 'remove' ? { remove: { id: optionId } } : { add: { id: optionId } };
+  const res = await api.asUser().requestJira(route`/rest/api/3/issue/${issueKey}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ update: { customfield_10212: [op] } }),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    console.error(`[SprintFlow] updateEpicPlanningVersion failed (${res.status}):`, body.slice(0, 500));
+  }
+  return { ok: res.ok };
+});
 
 resolver.define('getEpicStatuses', async (req) => {
   const { projectKey } = req.payload;

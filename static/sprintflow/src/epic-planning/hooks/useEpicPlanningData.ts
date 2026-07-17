@@ -6,6 +6,7 @@ import type {
   EpicCycleTimeSettings,
   EpicDetailedCycleTimes,
   EpicStatusConfig,
+  PlanningVersionOption,
   Quarter,
   QuarterName,
   RosterMember,
@@ -60,6 +61,7 @@ export function useEpicPlanningData() {
   const [teamName, setTeamName] = useState('');
   const [members, setMembers] = useState<RosterMember[]>([]);
   const [backlogEpics, setBacklogEpics] = useState<BacklogEpicOption[]>([]);
+  const [quarterOptions, setQuarterOptions] = useState<PlanningVersionOption[]>([]);
   const [epicStatuses, setEpicStatuses] = useState<EpicStatusConfig[]>([]);
   const [epicCycleTimeSettings, setEpicCycleTimeSettingsState] = useState<EpicCycleTimeSettings>(
     DEFAULT_EPIC_CYCLE_TIME_SETTINGS,
@@ -85,21 +87,26 @@ export function useEpicPlanningData() {
         const projectKey: string = ctx.extension?.project?.key ?? '';
         projectKeyRef.current = projectKey;
 
-        const [teamMembersResult, savedQuarters, savedConfig, epicStatusList] = await Promise.all([
-          call<TeamMembersResult>('getTeamMembers', { boardId, projectKey }),
-          call<Quarter[] | null>('loadQuarters', { projectKey }).catch((err) => {
-            console.warn('Epic Planning: loadQuarters failed, continuing with none:', err);
-            return null;
-          }),
-          call<SharedConfig | null>('loadConfig', { projectKey }).catch((err) => {
-            console.warn('Epic Planning: loadConfig failed, continuing with defaults:', err);
-            return null;
-          }),
-          call<EpicStatusConfig[]>('getEpicStatuses', { projectKey }).catch((err) => {
-            console.warn('Epic Planning: getEpicStatuses failed, phase assignment will be empty:', err);
-            return [] as EpicStatusConfig[];
-          }),
-        ]);
+        const [teamMembersResult, savedQuarters, savedConfig, epicStatusList, quarterOptionList] =
+          await Promise.all([
+            call<TeamMembersResult>('getTeamMembers', { boardId, projectKey }),
+            call<Quarter[] | null>('loadQuarters', { projectKey }).catch((err) => {
+              console.warn('Epic Planning: loadQuarters failed, continuing with none:', err);
+              return null;
+            }),
+            call<SharedConfig | null>('loadConfig', { projectKey }).catch((err) => {
+              console.warn('Epic Planning: loadConfig failed, continuing with defaults:', err);
+              return null;
+            }),
+            call<EpicStatusConfig[]>('getEpicStatuses', { projectKey }).catch((err) => {
+              console.warn('Epic Planning: getEpicStatuses failed, phase assignment will be empty:', err);
+              return [] as EpicStatusConfig[];
+            }),
+            call<PlanningVersionOption[]>('getQuarterOptions', { projectKey }).catch((err) => {
+              console.warn('Epic Planning: getQuarterOptions failed, Planning Version list will be empty:', err);
+              return [] as PlanningVersionOption[];
+            }),
+          ]);
 
         if (cancelled) return;
 
@@ -112,6 +119,7 @@ export function useEpicPlanningData() {
         epicCycleTimeSettingsRef.current = savedEpicCycleTimeSettings;
         setEpicDetailedCycleTimes(sharedConfigRef.current.epicDetailedCycleTimes);
         setEpicStatuses(epicStatusList ?? []);
+        setQuarterOptions(quarterOptionList ?? []);
 
         const resolvedTeamId = teamMembersResult?.teamId ?? projectKey;
         teamIdRef.current = resolvedTeamId;
@@ -260,12 +268,38 @@ export function useEpicPlanningData() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Fire-and-forget write-back to Jira's customfield_10212, with an optimistic local
+  // patch to backlogEpics so the "+Add Epic" picker reflects the change immediately.
+  const assignPlanningVersion = useCallback(
+    (issueKey: string, option: PlanningVersionOption, mode: 'add' | 'remove') => {
+      call('updateEpicPlanningVersion', { issueKey, optionId: option.id, mode }).catch((err) =>
+        console.error('Epic Planning: failed to update Planning Version in Jira', err),
+      );
+      setBacklogEpics((prev) =>
+        prev.map((be) =>
+          be.issueKey !== issueKey
+            ? be
+            : {
+                ...be,
+                planningVersions:
+                  mode === 'add'
+                    ? [...new Set([...be.planningVersions, option.value])]
+                    : be.planningVersions.filter((v) => v !== option.value),
+              },
+        ),
+      );
+    },
+    [],
+  );
+
   return {
     loading,
     teamId,
     teamName,
     members,
     backlogEpics,
+    quarterOptions,
+    assignPlanningVersion,
     updateMemberRole,
     epicStatuses,
     epicCycleTimeSettings,
