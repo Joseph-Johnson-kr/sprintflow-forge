@@ -24,6 +24,7 @@ permissions:
     - storage:app
     - read:jira-work
     - write:jira-work
+    - write:issue-link:jira
     - read:jira-user
     - read:board-scope:jira-software
     - read:board-scope.admin:jira-software

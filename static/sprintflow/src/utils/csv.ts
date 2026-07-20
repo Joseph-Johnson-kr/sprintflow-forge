@@ -93,6 +93,7 @@ export function parseCsv(text: string): Promise<CsvParseResult> {
             override: false,
             overrideCells: [],
             dependencies: [],
+            blockedByIssueKeys: [],
           });
         });
 

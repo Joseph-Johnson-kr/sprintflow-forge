@@ -30,6 +30,11 @@ npm run build
 ```
 forge deploy
 ```
+This deploys to the `development` environment by default. To deploy to `staging` or `production` instead, pass `-e`:
+```
+forge deploy -e staging
+forge deploy -e production
+```
 
 - Install your app in an Atlassian site by running:
 ```
@@ -37,9 +42,10 @@ forge install
 ```
 
 ### Notes
-- Use the `forge deploy` command when you want to persist code changes.
-- Use the `forge install` command when you want to install the app on a new site.
-- Once the app is installed on a site, the site picks up the new app changes you deploy without needing to rerun the install command.
+- Use the `forge deploy` command when you want to persist code changes. It uploads to one Forge environment bucket (`development`/`staging`/`production`) and has no effect on any live site until that site has been installed against that specific environment.
+- Use the `forge install` command when you want to install the app on a new site, or link it to a specific environment (`--environment <env>`).
+- Once the app is installed on a site, the site picks up the new app changes you deploy to that same environment without needing to rerun the install command.
+- Run `forge install list` at any time to see which sites are installed on which environment. See `docs/Forge-Overview-and-Deployment-Guide.md` for the current environments table.
 
 ## Testing Instructions
 

@@ -96,6 +96,8 @@ Per story, users can edit:
 
 All other fields (Key, Summary, Story Points) are read-only, sourced from Jira. Stories can be removed from the working set and reordered (move up/down) within the backlog table; this does not modify the underlying Jira issue, only SprintFlow's local view of it.
 
+**Dependencies:** Each story has a Deps panel listing checkboxes for every other story in the current sprint's backlog, plus a search box for linking a Story, Bug, or Spike from any team/project. Checking a box or selecting a search result writes a real Jira "Blocks" issue link (the other issue blocks this one) in addition to updating SprintFlow's local `dependencies` list; unchecking or removing a chip deletes the Jira link the same way. Dependencies on issues outside the current sprint's backlog render as read-only external chips (issue key, summary, Story Points, and current sprint, once resolved) rather than becoming editable local rows. On load, local dependencies are reconciled against Jira's actual "Blocks" links for every story with a real issue key — links added or removed directly in Jira (outside SprintFlow) are picked up automatically. External dependencies do not affect Flow Grid scheduling; only same-sprint dependencies influence day placement.
+
 **Rollover auto-repositioning:** Checking a story's Rollover box moves it to the bottom of the rollover group at the top of the backlog/Flow Grid (rollover rows cluster together, in the order they were marked, above all non-rollover rows), so carried-over work is immediately visible without scrolling. Unchecking it clears the flag but leaves the row in place — it is not automatically moved back down.
 
 ### 6.5 Cycle Time Calculation (from Jira History)
@@ -226,6 +228,8 @@ Story {
   rollover: boolean
   override: boolean         // manual cell mode
   overrideCells: StoryStatus[]
+  dependencies: string[]           // issue keys this story depends on; local (checkbox) or external (chip)
+  blockedByIssueKeys: string[]     // live from Jira's "Blocks" links; drives read-side reconciliation of `dependencies`
 }
 
 TeamMemberConfig {
@@ -261,6 +265,9 @@ SprintOption {
 | `getSprintIssues` | Returns Story/Bug/Spike issues for a given sprint |
 | `getCycleTimes` | Computes time-in-status averages per story-point value from closed, completed, team-scoped issue history |
 | `loadConfig` / `saveConfig` | Reads/writes the project-scoped `SavedConfig` object to Forge storage |
+| `searchDependencyCandidates` | JQL search for Story/Bug/Spike issues (any team/project) to link as a dependency, shared with Epic Planning's Epic search |
+| `getIssuesByKeys` | Resolves display info (summary, team, size/points, sprint) for external dependency chips whose issue isn't in the current backlog |
+| `updateDependencyLink` | Creates or deletes a Jira "Blocks" issue link between two issue keys, shared with Epic Planning |
 | `ping` | Health-check / deployment diagnostic |
 
 ### 8.4 Jira Custom Fields Referenced
@@ -308,7 +315,7 @@ Epic Planning shares SprintFlow's **one team per Jira board/project context** mo
 
 **Epics**
 
-- Each Epic has: an optional link to a real Jira Epic (`issueKey` + summary, chosen from a live backlog dropdown) or a free-text title if unlinked; a T-shirt size (XS–XL plus Jumbo, mapped to a fixed sprint duration: XS = 0.5, S = 1, M = 2, L = 3, XL = 6, Jumbo = 8 sprints); a dev-allocation headcount; free-text risks (each tagged low/medium/high) and notes; and dependencies on other Epics in the same quarter
+- Each Epic has: an optional link to a real Jira Epic (`issueKey` + summary, chosen from a live backlog dropdown) or a free-text title if unlinked; a T-shirt size (XS–XL plus Jumbo, mapped to a fixed sprint duration: XS = 0.5, S = 1, M = 2, L = 3, XL = 6, Jumbo = 8 sprints); a dev-allocation headcount; free-text risks (each tagged low/medium/high) and notes; and dependencies, either on other Epics in the same quarter (checkbox) or on any Epic found via search across quarters/teams/projects (external chip, read-only, display-only sizing/planning-version info)
 - Within a single quarter, a backlog-linked Epic can only be assigned to one row — Epics already used by another row in that quarter are hidden from the selection dropdown to prevent double-planning. The **same** Epic can be re-selected in a **different** quarter, which is how rollover work continuing into the next quarter is represented
 - Epics can be reordered (move up/down) within a quarter; order affects display and, when the scheduler has a tie, scheduling priority
 - Available backlog Epics are fetched live from Jira (`getBacklogEpics`): issue type Epic, project-scoped, team-scoped when a real Team ID is resolved, excluding Closed/Cancelled statuses
@@ -351,7 +358,7 @@ A fifth option ("All") in the quarter selector renders all four of the selected 
 ### 9.6 Data Architecture
 
 - **Storage key:** `sprintflow-quarters:{projectKey}` (Forge app storage, `storage:app` scope) holds the full array of quarters for that project's team — a separate key from SprintFlow's own `sprintflow-config:{projectKey}` so the two modules' data never collide. Saves are debounced (500ms) and flushed immediately on panel close, same pattern as SprintFlow (Section 8.1)
-- **Core data model:** `Quarter { id, name, year, sprintCount, teamId, members, epics }`, `Epic { id, title, issueKey?, size, devAllocation, risks, dependencies, notes }`, `TeamMember { id, name, absences }`, plus forecast-only types (`EpicSchedule`, `SprintMetrics`) produced by the forecast engine and not persisted
+- **Core data model:** `Quarter { id, name, year, sprintCount, teamId, members, epics }`, `Epic { id, title, issueKey?, size, devAllocation, risks, dependencies, blockedByIssueKeys, notes }`, `TeamMember { id, name, absences }`, plus forecast-only types (`EpicSchedule`, `SprintMetrics`) produced by the forecast engine and not persisted. `blockedByIssueKeys` is live from Jira's "Blocks" links (not persisted) and drives read-side reconciliation of `dependencies`, mirroring `Story` (Section 8.2)
 - **Resolvers added for Epic Planning:**
 
 | Resolver | Purpose |
@@ -359,16 +366,18 @@ A fifth option ("All") in the quarter selector renders all four of the selected 
 | `loadQuarters` / `saveQuarters` | Reads/writes the project-scoped `Quarter[]` array to Forge storage |
 | `getBacklogEpics` | Live, project/team-scoped Jira query for open Epics available to assign, including each Epic's T-Shirt Size field for size pre-population |
 
-`getTeamMembers` (Section 8.3) is reused unchanged from SprintFlow — there is no separate roster resolver for Epic Planning.
+`getTeamMembers` (Section 8.3) is reused unchanged from SprintFlow — there is no separate roster resolver for Epic Planning. `searchDependencyCandidates`, `getIssuesByKeys`, and `updateDependencyLink` (Section 8.3) are likewise shared with SprintFlow's Story dependency search/write-back — `searchDependencyCandidates` is called with `issueTypes: ['Epic']` from Epic Planning.
 
 **Jira custom field referenced:** T-Shirt Size, `customfield_10269` — a single-select field on Epics; matched case-insensitively against SprintFlow's own size scale (XS/S/M/L/XL/Jumbo) to pre-populate an Epic's size when assigned.
+
+**Dependency write-back:** Checking a same-quarter dependency checkbox, or selecting a search result for a cross-team/project Epic, writes a real Jira "Blocks" issue link between the two Epics' underlying issues (via `updateDependencyLink`), in addition to updating the local `dependencies` array; unchecking or removing an external chip deletes the Jira link the same way. This is the one exception to Epic Planning's otherwise read-only relationship with Jira (see Section 9.7) — sizing, dev allocation, risk, and notes remain local-only. On load, an Epic's dependencies are reconciled against Jira's actual "Blocks" links for any Epic with a real `issueKey`, so links changed directly in Jira are picked up automatically; local-only Epic rows (free-text title, no `issueKey`) are exempt since they were never synced.
 
 ### 9.7 Out of Scope (Epic Planning–specific)
 
 | Feature | Rationale for Exclusion |
 |---|---|
 | Cross-quarter scheduling / a unified timeline model | The "All" view is a read-only, render-time merge over four independently-computed per-quarter forecasts, not a shared scheduling engine — deliberately avoided to keep each quarter's forecast simple and independently resettable |
-| Writing planning data back to Jira Epics | Same read-only-against-Jira principle as SprintFlow (Section 11) — Epic sizing, dev allocation, risk, dependency, and notes data lives only in Epic Planning's own storage |
+| Writing planning data back to Jira Epics | Same read-only-against-Jira principle as SprintFlow (Section 11) — Epic sizing, dev allocation, risk, and notes data lives only in Epic Planning's own storage. The one exception is dependency links, which write to Jira as real "Blocks" issue links (Section 9.4) |
 | Automatic Epic rollover | The tool does not move an unfinished Epic into the next quarter automatically; a user re-selects the same Epic in the next quarter's Epic list manually |
 | Historical/versioned quarters | Resetting or overwriting a quarter's data is destructive and unrecoverable (no undo/history), consistent with the confirmation-gated Reset Quarter action |
 
@@ -381,7 +390,7 @@ A fifth option ("All") in the quarter selector renders all four of the selected 
 | **Platform** | Atlassian Forge Custom UI app (`jira:backlogAction` module), runs inside Jira Cloud |
 | **Backend** | Forge resolver functions (Node.js) — no self-hosted server or infrastructure to maintain |
 | **Persistence** | Forge app storage, scoped per Jira project; no localStorage |
-| **Permissions** | Least-privilege Forge scopes: read access to Jira issues/boards/sprints/projects/accounts, plus app-scoped storage — no write access to Jira issue data |
+| **Permissions** | Least-privilege Forge scopes: read access to Jira issues/boards/sprints/projects/accounts, plus app-scoped storage. The only write access to Jira is `write:issue-link:jira`, used exclusively to create/delete "Blocks" issue links for Story and Epic dependencies (Sections 6.4, 9.4) — no other Jira issue data is modified |
 | **Data residency** | All Jira data access happens via Forge's managed runtime on Atlassian's infrastructure; no data is sent to any third-party service |
 | **Performance** | Forecast computation is synchronous and in-memory once data is fetched; must be imperceptible for teams of ≤ 20 members and ≤ 100 backlog issues |
 | **State management** | Zustand (frontend), Forge storage (backend persistence) |
@@ -399,7 +408,7 @@ A fifth option ("All") in the quarter selector renders all four of the selected 
 | CSV backlog upload | Superseded by live Jira sprint/issue data; no manual export/import step needed |
 | localStorage persistence | Superseded by Forge app storage, which works across devices/sessions for the same Jira account |
 | Multi-team creation / team switcher | Each Jira board/project context implicitly maps to one team; a manager with multiple teams opens SprintFlow from each team's own board |
-| Writing back to Jira issues | SprintFlow is read-only against Jira issue data; all planning adjustments (start day, overrides) live in SprintFlow's own config, not on the Jira issue |
+| Writing back to Jira issues | SprintFlow is read-only against Jira issue data for planning adjustments — start day and overrides live in SprintFlow's own config, not on the Jira issue. The one exception is story dependencies, which write to Jira as real "Blocks" issue links (Section 6.4) |
 | Individual story or task assignments | Violates the non-prescriptive model; would make the tool feel like a project management system |
 | Gantt chart or timeline export | Out of scope for current planning workflow |
 | Mobile / responsive layout | Primary use is on a laptop during a planning session, inside the Jira web app |
@@ -410,9 +419,9 @@ See Section 9.7 for Epic Planning–specific out-of-scope items.
 
 ## 12. Open Questions / Future Considerations
 
-- **Epic Planning ↔ Jira write-back:** Epic Planning is currently entirely one-directional (reads Epics from Jira, keeps sizing/scheduling data local). A future version could optionally sync computed schedule dates back to Jira Epic fields for visibility outside the app.
+- **Epic Planning ↔ Jira write-back:** Epic Planning writes back only dependency links (Section 9.4); sizing, dev allocation, risk, notes, and computed schedule dates remain local-only. A future version could optionally sync computed schedule dates back to Jira Epic fields for visibility outside the app.
 - **Epic Planning capacity data entry:** Member absences are entered manually per sprint per quarter. A future version could source planned time off from an existing Jira/HR data source where available, reducing manual upkeep.
 - **Multi-board team detection:** The current Team field-based detection assumes issues in a project consistently carry the same Team value. Projects that intentionally span multiple teams within one board are not explicitly modeled beyond the existing team-scoped fallback logic.
 - **Cross-sprint rollover tracking:** Rollover is currently a per-issue, per-load flag (detected from the Sprint field) rather than a tracked history; a future version could show how many times a story has rolled over.
 - **Confidence interval display:** The cycle time model currently reports a single average per status/point value. A future version could show variance (e.g., min/median/max) to better convey estimate uncertainty.
-- **Write-back to Jira:** Currently no SprintFlow-derived data (adjusted start days, phase assignments) is written back to Jira. A future version could optionally sync select fields for visibility outside the app.
+- **Write-back to Jira:** Beyond dependency links (Section 6.4), no other SprintFlow-derived data (adjusted start days, phase assignments) is written back to Jira. A future version could optionally sync select fields for visibility outside the app.

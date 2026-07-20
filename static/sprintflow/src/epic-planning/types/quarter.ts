@@ -1,5 +1,7 @@
 import type { MemberRole } from '../../types';
 
+export type { DependencyCandidate } from '../../types';
+
 export type TShirtSize = 'XS' | 'S' | 'M' | 'L' | 'XL' | 'Jumbo';
 
 export const TSHIRT_SPRINT_DURATIONS: Record<TShirtSize, number> = {
@@ -50,6 +52,8 @@ export interface BacklogEpicOption {
   suggestedSize?: TShirtSize;
   /** Current values of the Epic's "Planning Version" Jira field (customfield_10212), e.g. "2026Q1". */
   planningVersions: string[];
+  /** Issue keys of Epics that Jira's "Blocks" issue links say block this Epic. */
+  blockedByIssueKeys: string[];
 }
 
 /** A configured Planning Version value (customfield_10212), as returned by getQuarterOptions. */

@@ -28,11 +28,16 @@ export default function App() {
     epicDetailedCycleTimes,
     recalculateEpicCycleTimes,
     recalculatingEpicCycleTimes,
+    externalDependencyInfo,
+    resolveExternalIssues,
+    searchDependencies,
+    syncDependencyLink,
   } = useEpicPlanningData();
 
   const quartersByTeam = useQuarterStore((s) => s.quartersByTeam);
   const selectedQuarterId = useQuarterStore((s) => s.selectedQuarterId);
   const syncMembersFromTeam = useQuarterStore((s) => s.syncMembersFromTeam);
+  const updateEpic = useQuarterStore((s) => s.updateEpic);
   const state = useQuarterStore((s) => s);
 
   const [isAllView, setIsAllView] = useState(false);
@@ -45,6 +50,63 @@ export default function App() {
     if (!teamId || !selectedQuarterId || members.length === 0) return;
     syncMembersFromTeam(teamId, selectedQuarterId, members);
   }, [teamId, selectedQuarterId, members, syncMembersFromTeam]);
+
+  // Auto-populate dependencies from Jira's real "Blocks" links (read side). Only adds
+  // dependencies inferred from Jira; never removes a locally-set one Jira doesn't know about.
+  useEffect(() => {
+    if (!teamId || !selectedQuarter) return;
+    const unresolvedKeys: string[] = [];
+    for (const epic of selectedQuarter.epics) {
+      // A dependency entry may be a raw issue key (added via search, or inferred from Jira
+      // before the blocker was a local row) that now matches another row's issueKey — migrate
+      // it onto that row's local id so it renders as one checked checkbox instead of duplicating
+      // as both a checkbox and an external chip.
+      const migratedDeps = epic.dependencies.map((depId) => {
+        if (selectedQuarter.epics.some((e) => e.id === depId)) return depId;
+        const localMatch = selectedQuarter.epics.find((e) => e.id !== epic.id && e.issueKey === depId);
+        return localMatch ? localMatch.id : depId;
+      });
+      const dedupedDeps = [...new Set(migratedDeps)];
+      const depsChanged =
+        dedupedDeps.length !== epic.dependencies.length ||
+        dedupedDeps.some((d, i) => d !== epic.dependencies[i]);
+      if (depsChanged) {
+        updateEpic(teamId, selectedQuarter.id, epic.id, { dependencies: dedupedDeps });
+        continue;
+      }
+
+      if (!epic.issueKey) continue;
+      const backlogEntry = backlogEpics.find((be) => be.issueKey === epic.issueKey);
+      if (!backlogEntry) continue;
+      const blockedBy = new Set(backlogEntry.blockedByIssueKeys);
+
+      const additions: string[] = [];
+      for (const blockerKey of backlogEntry.blockedByIssueKeys) {
+        const blockerEpic = selectedQuarter.epics.find((e) => e.issueKey === blockerKey);
+        const depValue = blockerEpic ? blockerEpic.id : blockerKey;
+        if (!epic.dependencies.includes(depValue) && !additions.includes(depValue)) {
+          additions.push(depValue);
+        }
+        if (!blockerEpic) unresolvedKeys.push(blockerKey);
+      }
+
+      // Drop dependency entries Jira no longer reports as blocking — but only ones we can
+      // confirm are Jira-tracked (a raw issue key, or a local row that itself has an issue
+      // key). A dependency on a local row with no issue key was never synced to Jira, so it's
+      // left alone even though this reconciliation can't confirm it via blockedByIssueKeys.
+      const removals = epic.dependencies.filter((depId) => {
+        const localMatch = selectedQuarter.epics.find((e) => e.id === depId);
+        const trackedKey = localMatch ? localMatch.issueKey : depId;
+        return !!trackedKey && !blockedBy.has(trackedKey);
+      });
+
+      if (additions.length || removals.length) {
+        const next = epic.dependencies.filter((d) => !removals.includes(d)).concat(additions);
+        updateEpic(teamId, selectedQuarter.id, epic.id, { dependencies: next });
+      }
+    }
+    if (unresolvedKeys.length) resolveExternalIssues(unresolvedKeys);
+  }, [teamId, selectedQuarter, backlogEpics, updateEpic, resolveExternalIssues]);
 
   return (
     <div className="flex flex-col h-screen max-w-[1500px] w-full mx-auto">
@@ -122,6 +184,10 @@ export default function App() {
                       backlogEpics={backlogEpics}
                       quarterOptions={quarterOptions}
                       onAssignPlanningVersion={assignPlanningVersion}
+                      onSyncDependencyLink={syncDependencyLink}
+                      onSearchDependencies={searchDependencies}
+                      onResolveExternalIssues={resolveExternalIssues}
+                      externalDependencyInfo={externalDependencyInfo}
                     />
                   </CollapsibleSection>
                   <CollapsibleSection

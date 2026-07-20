@@ -30,7 +30,7 @@ Think of it like this: a normal website needs its own building (servers), its ow
 | **App** | The SprintFlow plugin as a whole — the bundle of frontend screens + backend resolver code. |
 | **Deploy** | Publishing a new version of our code to Atlassian's servers. This does *not* automatically mean every site is using it — see the gotcha in Section 5. |
 | **Install** | Connecting the app to a specific Jira site (e.g., our Kroger Stage site) so people there can actually use it. Only needs to happen once per site; after that, deploys update it automatically. |
-| **Environment** | Forge separates work into `development`, `staging`, and `production` buckets, so changes can be tested before they reach real users. We currently deploy to `development`. |
+| **Environment** | Forge separates work into `development`, `staging`, and `production` buckets, so changes can be tested before they reach real users. Deploying to an environment (`forge deploy -e <environment>`) only uploads code to that bucket in Atlassian's registry — it has **no effect on any site** unless that site has separately been installed against that environment (see the Environments table in Section 5). |
 | **Tunnel** | A temporary, personal preview mode. It lets a developer see their in-progress changes live inside Jira *before* deploying them for everyone else. |
 | **Resolver** | A named backend function (e.g., "get me the list of sprints") that the SprintFlow screen calls when it needs Jira data. |
 | **Manifest** | A configuration file (`manifest.yml`) that lists everything the app is allowed to do — which screens it shows, which resolver functions exist, and which Jira data permissions it needs. |
@@ -228,11 +228,14 @@ flowchart TD
    ```
    npm run build
    ```
-3. Publish it to Atlassian (run from the project's main folder):
+3. Publish it to Atlassian (run from the project's main folder). Plain `forge deploy` targets the `development` environment; to publish to `staging` or `production` instead, add `-e`:
    ```
-   forge deploy
+   forge deploy                  # development (default)
+   forge deploy -e staging       # staging
+   forge deploy -e production    # production
    ```
-4. **Confirm the live site actually picked up the new version** (see the important gotcha below):
+   Deploying to `staging`/`production` is safe to do at any time regardless of what's in `development` — it only affects sites that have been installed against that specific environment (Section 5's Environments table). As of this writing, no site is installed on `staging` or `production`, so deploying there has zero effect on any live Jira site until an install is deliberately run against it.
+4. **If you deployed to `development`, confirm the live site actually picked up the new version** (see the important gotcha below):
    ```
    forge install list
    ```
@@ -240,6 +243,7 @@ flowchart TD
    ```
    forge install --upgrade --site <site-name> --product jira --environment development --non-interactive
    ```
+   (This step doesn't apply to `staging`/`production` deploys unless/until a site is installed against those environments.)
 5. Restart the preview tunnel if you plan to keep testing:
    ```
    forge tunnel
@@ -261,8 +265,19 @@ Every Forge app must explicitly declare what it's allowed to access, and Atlassi
 - Reading Jira issues, projects, boards, and sprints
 - Reading account/user info needed to show team members
 - Reading and writing its own small settings storage (nothing else in Jira)
+- Creating/deleting Jira "Blocks" issue links, used only to keep a Story's or Epic's dependency list in sync with Jira when a user adds/removes a dependency in SprintFlow or Epic Planning (`write:issue-link:jira` in `manifest.yml`)
 
-It cannot read other apps' data, modify issues on its own, or access anything outside the Jira site it's installed on.
+Beyond that one issue-link exception, it cannot read other apps' data, modify issues on its own, or access anything outside the Jira site it's installed on.
+
+### Environments table
+
+| Jira site | Forge environment | Install status |
+|---|---|---|
+| `kroger-stage.atlassian.net` | `development` | Installed, `Up-to-date` |
+| *(none)* | `staging` | Not installed anywhere |
+| *(none)* | `production` | Not installed anywhere |
+
+Run `forge install list` to refresh this at any time. Because no site is installed on `staging`/`production`, deploying to those environments is decoupled from `kroger-stage.atlassian.net` — safe to publish in-progress work there ahead of a real production rollout.
 
 ---
 
@@ -270,11 +285,11 @@ It cannot read other apps' data, modify issues on its own, or access anything ou
 
 A few things worth adding as the project matures, so this page stays useful as the single source of truth:
 
-1. **Environments table** — once we have a formal staging/production split, list each Jira site name, its Forge environment (`development`/`staging`/`production`), and who owns installs/upgrades for it.
-2. **Release/change log** — a running log of what shipped, when, and why (even a simple table: Date | Change | Deployed by | Notes). Useful for tracing "when did X start happening" questions later.
-3. **Rollback procedure** — steps to revert to a previous app version if a deploy causes a problem (`forge deploy` supports deploying a specific prior version).
-4. **Screenshots / short screen recording** of the SprintFlow panel and the Config tab, so non-technical stakeholders can see what's being described without opening Jira.
-5. **Access & roles** — who currently has permission to run `forge deploy`/`forge install` (this ties to Atlassian account permissions, not just laptop access), and how to request that access.
-6. **A troubleshooting FAQ** — growing list of "if you see X, do Y" entries (we already have two great candidates: the "Outdated app" gotcha and the corporate-proxy tunnel error).
-7. **Data field reference** — a short table of the custom Jira fields SprintFlow depends on (e.g., Team, Story Points, Sprint) and their internal IDs, so a future maintainer doesn't have to rediscover them from scratch.
-8. **Support/escalation contact** — who to ping (Slack channel, email) if SprintFlow breaks in production.
+1. **Release/change log** — a running log of what shipped, when, and why (even a simple table: Date | Change | Deployed by | Notes). Useful for tracing "when did X start happening" questions later.
+2. **Rollback procedure** — steps to revert to a previous app version if a deploy causes a problem (`forge deploy` supports deploying a specific prior version).
+3. **Screenshots / short screen recording** of the SprintFlow panel and the Config tab, so non-technical stakeholders can see what's being described without opening Jira.
+4. **Access & roles** — who currently has permission to run `forge deploy`/`forge install` (this ties to Atlassian account permissions, not just laptop access), and how to request that access.
+5. **A troubleshooting FAQ** — growing list of "if you see X, do Y" entries (we already have two great candidates: the "Outdated app" gotcha and the corporate-proxy tunnel error).
+6. **Data field reference** — a short table of the custom Jira fields SprintFlow depends on (e.g., Team, Story Points, Sprint) and their internal IDs, so a future maintainer doesn't have to rediscover them from scratch.
+7. **Support/escalation contact** — who to ping (Slack channel, email) if SprintFlow breaks in production.
+8. **Formal staging/production owners & install procedure** — once staging/production installs actually exist (Section 5's Environments table), document who owns running `forge install` against those sites and the promotion process from `development` → `staging` → `production`.

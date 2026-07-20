@@ -3,6 +3,7 @@ import { invoke, view } from '@forge/bridge';
 import { useQuarterStore } from '../stores/quarterStore';
 import type {
   BacklogEpicOption,
+  DependencyCandidate,
   EpicCycleTimeSettings,
   EpicDetailedCycleTimes,
   EpicStatusConfig,
@@ -70,11 +71,15 @@ export function useEpicPlanningData() {
     EpicDetailedCycleTimes | undefined
   >(undefined);
   const [recalculatingEpicCycleTimes, setRecalculatingEpicCycleTimes] = useState(false);
+  const [externalDependencyInfo, setExternalDependencyInfo] = useState<
+    Record<string, DependencyCandidate>
+  >({});
 
   const projectKeyRef = useRef<string>('');
   const teamIdRef = useRef<string | null>(null);
   const sharedConfigRef = useRef<SharedConfig>({});
   const epicCycleTimeSettingsRef = useRef<EpicCycleTimeSettings>(DEFAULT_EPIC_CYCLE_TIME_SETTINGS);
+  const externalDependencyInfoRef = useRef<Record<string, DependencyCandidate>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -292,6 +297,54 @@ export function useEpicPlanningData() {
     [],
   );
 
+  // Resolves raw issue keys (external dependency chips) into displayable summaries,
+  // caching results so a key already resolved is never re-fetched.
+  const resolveExternalIssues = useCallback((issueKeys: string[]) => {
+    const unresolved = issueKeys.filter((k) => !externalDependencyInfoRef.current[k]);
+    if (!unresolved.length) return;
+    call<DependencyCandidate[]>('getIssuesByKeys', { issueKeys: unresolved })
+      .then((results) => {
+        if (!results?.length) return;
+        setExternalDependencyInfo((prev) => {
+          const next = { ...prev };
+          for (const r of results) next[r.issueKey] = r;
+          externalDependencyInfoRef.current = next;
+          return next;
+        });
+      })
+      .catch((err) => console.error('Epic Planning: failed to resolve external dependency issues', err));
+  }, []);
+
+  const searchDependencies = useCallback(
+    (query: string, excludeIssueKey?: string) =>
+      call<DependencyCandidate[]>('searchDependencyCandidates', { query, excludeIssueKey }),
+    [],
+  );
+
+  // Fire-and-forget write-back to Jira's Blocks issue links, with an optimistic local
+  // patch to backlogEpics' blockedByIssueKeys so reconciliation reflects the change immediately.
+  const syncDependencyLink = useCallback(
+    (blockedIssueKey: string, blockerIssueKey: string, mode: 'add' | 'remove') => {
+      call('updateDependencyLink', { blockedIssueKey, blockerIssueKey, mode }).catch((err) =>
+        console.error('Epic Planning: failed to update dependency link in Jira', err),
+      );
+      setBacklogEpics((prev) =>
+        prev.map((be) =>
+          be.issueKey !== blockedIssueKey
+            ? be
+            : {
+                ...be,
+                blockedByIssueKeys:
+                  mode === 'add'
+                    ? [...new Set([...be.blockedByIssueKeys, blockerIssueKey])]
+                    : be.blockedByIssueKeys.filter((k) => k !== blockerIssueKey),
+              },
+        ),
+      );
+    },
+    [],
+  );
+
   return {
     loading,
     teamId,
@@ -307,5 +360,9 @@ export function useEpicPlanningData() {
     epicDetailedCycleTimes,
     recalculateEpicCycleTimes,
     recalculatingEpicCycleTimes,
+    externalDependencyInfo,
+    resolveExternalIssues,
+    searchDependencies,
+    syncDependencyLink,
   };
 }

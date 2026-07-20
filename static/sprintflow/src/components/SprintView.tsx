@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { SprintOption, Team } from '../types';
+import type { DependencyCandidate, SprintOption, Team } from '../types';
 import BacklogTable from './BacklogTable';
 import FlowGrid from './FlowGrid';
 
@@ -9,6 +9,10 @@ interface Props {
   selectedSprintId: number | null;
   sprintLoading: boolean;
   onSprintChange: (id: number) => void;
+  onSyncDependencyLink: (blockedIssueKey: string, blockerIssueKey: string, mode: 'add' | 'remove') => void;
+  onSearchDependencies: (query: string, excludeIssueKey?: string) => Promise<DependencyCandidate[]>;
+  onResolveExternalIssues: (issueKeys: string[]) => void;
+  externalDependencyInfo: Record<string, DependencyCandidate>;
 }
 
 export default function SprintView({
@@ -17,6 +21,10 @@ export default function SprintView({
   selectedSprintId,
   sprintLoading,
   onSprintChange,
+  onSyncDependencyLink,
+  onSearchDependencies,
+  onResolveExternalIssues,
+  externalDependencyInfo,
 }: Props) {
   const [backlogOpen, setBacklogOpen] = useState(true);
 
@@ -93,7 +101,13 @@ export default function SprintView({
         </button>
         {backlogOpen && (
           <div className="px-4 pb-4 pt-3">
-            <BacklogTable team={team} />
+            <BacklogTable
+              team={team}
+              onSyncDependencyLink={onSyncDependencyLink}
+              onSearchDependencies={onSearchDependencies}
+              onResolveExternalIssues={onResolveExternalIssues}
+              externalDependencyInfo={externalDependencyInfo}
+            />
           </div>
         )}
       </section>

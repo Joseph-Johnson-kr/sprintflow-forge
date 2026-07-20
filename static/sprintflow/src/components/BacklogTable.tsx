@@ -1,9 +1,14 @@
 import { useState } from 'react';
-import type { Story, Team } from '../types';
+import type { DependencyCandidate, Story, Team } from '../types';
 import { useTeamStore } from '../stores/teamStore';
+import { DependencyCandidateBadges, DependencySearchBox } from './DependencyPicker';
 
 interface Props {
   team: Team;
+  onSyncDependencyLink: (blockedIssueKey: string, blockerIssueKey: string, mode: 'add' | 'remove') => void;
+  onSearchDependencies: (query: string, excludeIssueKey?: string) => Promise<DependencyCandidate[]>;
+  onResolveExternalIssues: (issueKeys: string[]) => void;
+  externalDependencyInfo: Record<string, DependencyCandidate>;
 }
 
 const COLUMN_COUNT = 8;
@@ -11,9 +16,20 @@ const COLUMN_COUNT = 8;
 interface StoryRowProps {
   team: Team;
   story: Story;
+  onSyncDependencyLink: (blockedIssueKey: string, blockerIssueKey: string, mode: 'add' | 'remove') => void;
+  onSearchDependencies: (query: string, excludeIssueKey?: string) => Promise<DependencyCandidate[]>;
+  onResolveExternalIssues: (issueKeys: string[]) => void;
+  externalDependencyInfo: Record<string, DependencyCandidate>;
 }
 
-function StoryRow({ team, story }: StoryRowProps) {
+function StoryRow({
+  team,
+  story,
+  onSyncDependencyLink,
+  onSearchDependencies,
+  onResolveExternalIssues,
+  externalDependencyInfo,
+}: StoryRowProps) {
   const updateStory = useTeamStore((s) => s.updateStory);
   const setRollover = useTeamStore((s) => s.setRollover);
   const removeStory = useTeamStore((s) => s.removeStory);
@@ -111,21 +127,19 @@ function StoryRow({ team, story }: StoryRowProps) {
 
         {/* Dependencies */}
         <td className="px-3 py-2 text-center">
-          {otherStories.length > 0 && (
-            <button
-              onClick={() => setShowDeps((v) => !v)}
-              className={`text-xs px-2 py-1 rounded border ${
-                story.dependencies.length > 0
-                  ? 'border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100'
-                  : 'border-slate-200 text-slate-400 hover:bg-slate-50'
-              }`}
-              title="Manage dependencies"
-            >
-              {story.dependencies.length > 0
-                ? `${story.dependencies.length} dep${story.dependencies.length > 1 ? 's' : ''}`
-                : '+ Dep'}
-            </button>
-          )}
+          <button
+            onClick={() => setShowDeps((v) => !v)}
+            className={`text-xs px-2 py-1 rounded border ${
+              story.dependencies.length > 0
+                ? 'border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100'
+                : 'border-slate-200 text-slate-400 hover:bg-slate-50'
+            }`}
+            title="Manage dependencies"
+          >
+            {story.dependencies.length > 0
+              ? `${story.dependencies.length} dep${story.dependencies.length > 1 ? 's' : ''}`
+              : '+ Dep'}
+          </button>
         </td>
 
         <td className="px-3 py-2 text-right">
@@ -164,6 +178,7 @@ function StoryRow({ team, story }: StoryRowProps) {
                           ? [...story.dependencies, other.issueKey]
                           : story.dependencies.filter((d) => d !== other.issueKey);
                         updateStory(team.id, story.issueKey, { dependencies: deps });
+                        onSyncDependencyLink(story.issueKey, other.issueKey, e.target.checked ? 'add' : 'remove');
                       }}
                       className="accent-indigo-600"
                     />
@@ -172,6 +187,51 @@ function StoryRow({ team, story }: StoryRowProps) {
                 );
               })}
             </div>
+
+            {story.dependencies.filter((depKey) => !otherStories.some((o) => o.issueKey === depKey)).length >
+              0 && (
+              <div className="flex flex-wrap gap-2 mt-2">
+                {story.dependencies
+                  .filter((depKey) => !otherStories.some((o) => o.issueKey === depKey))
+                  .map((depKey) => {
+                    const info = externalDependencyInfo[depKey];
+                    return (
+                      <div
+                        key={depKey}
+                        className="flex items-center gap-1.5 text-xs rounded border border-purple-200 bg-purple-50 text-purple-800 px-2 py-1"
+                      >
+                        <span className="font-medium">{info?.issueKey ?? depKey}</span>
+                        {info && <span className="text-purple-600 truncate max-w-[16rem]">— {info.summary}</span>}
+                        {info && <DependencyCandidateBadges candidate={info} />}
+                        <button
+                          onClick={() => {
+                            const deps = story.dependencies.filter((d) => d !== depKey);
+                            updateStory(team.id, story.issueKey, { dependencies: deps });
+                            onSyncDependencyLink(story.issueKey, depKey, 'remove');
+                          }}
+                          className="opacity-60 hover:opacity-100 shrink-0"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
+
+            <DependencySearchBox
+              excludeIssueKey={story.issueKey}
+              onSearchDependencies={onSearchDependencies}
+              onSelect={(candidate) => {
+                if (!story.dependencies.includes(candidate.issueKey)) {
+                  updateStory(team.id, story.issueKey, {
+                    dependencies: [...story.dependencies, candidate.issueKey],
+                  });
+                }
+                onSyncDependencyLink(story.issueKey, candidate.issueKey, 'add');
+                onResolveExternalIssues([candidate.issueKey]);
+              }}
+            />
           </td>
         </tr>
       )}
@@ -179,7 +239,13 @@ function StoryRow({ team, story }: StoryRowProps) {
   );
 }
 
-export default function BacklogTable({ team }: Props) {
+export default function BacklogTable({
+  team,
+  onSyncDependencyLink,
+  onSearchDependencies,
+  onResolveExternalIssues,
+  externalDependencyInfo,
+}: Props) {
   if (team.backlog.length === 0) {
     return (
       <div className="text-sm text-slate-500 italic px-3 py-6 border border-dashed border-slate-300 rounded text-center">
@@ -205,7 +271,15 @@ export default function BacklogTable({ team }: Props) {
         </thead>
         <tbody>
           {team.backlog.map((story) => (
-            <StoryRow key={story.issueKey} team={team} story={story} />
+            <StoryRow
+              key={story.issueKey}
+              team={team}
+              story={story}
+              onSyncDependencyLink={onSyncDependencyLink}
+              onSearchDependencies={onSearchDependencies}
+              onResolveExternalIssues={onResolveExternalIssues}
+              externalDependencyInfo={externalDependencyInfo}
+            />
           ))}
         </tbody>
       </table>

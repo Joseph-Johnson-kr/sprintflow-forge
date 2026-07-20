@@ -65,6 +65,7 @@ function mapIssue(issue) {
     override: false,
     overrideCells: [],
     dependencies: [],
+    blockedByIssueKeys: mapBlockedByKeys(issue.fields?.issuelinks),
   };
 }
 
@@ -139,7 +140,7 @@ resolver.define('getSprintIssues', async (req) => {
   // The program sprint contains issues from many SATH sub-teams; the board isolates ours.
   // customfield_10020 (Sprint field) is fetched to auto-detect rollover (multi-sprint) issues.
   const res = await api.asApp().requestJira(
-    route`/rest/agile/1.0/board/${boardId}/issue?jql=sprint=${sprintId} AND project=${projectKey}&fields=summary,customfield_10032,customfield_10020,issuetype&maxResults=100`,
+    route`/rest/agile/1.0/board/${boardId}/issue?jql=sprint=${sprintId} AND project=${projectKey}&fields=summary,customfield_10032,customfield_10020,issuetype,issuelinks&maxResults=100`,
   );
   const data = await res.json();
   const allIssues = data.issues ?? [];
@@ -402,7 +403,7 @@ resolver.define('getBacklogEpics', async (req) => {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       jql,
-      fields: ['summary', 'customfield_10269', 'customfield_10212'],
+      fields: ['summary', 'customfield_10269', 'customfield_10212', 'issuelinks'],
       maxResults: 100,
     }),
   });
@@ -415,8 +416,18 @@ resolver.define('getBacklogEpics', async (req) => {
     summary: i.fields?.summary ?? i.key,
     suggestedSize: mapTshirtSize(i.fields?.customfield_10269),
     planningVersions: mapPlanningVersions(i.fields?.customfield_10212),
+    blockedByIssueKeys: mapBlockedByKeys(i.fields?.issuelinks),
   }));
 });
+
+// A "Blocks"-type link entry with an `inwardIssue` (not `outwardIssue`) means the queried
+// issue is the outward/blocked side, and inwardIssue is a blocker of it.
+function mapBlockedByKeys(issuelinks) {
+  return (Array.isArray(issuelinks) ? issuelinks : [])
+    .filter((l) => l.type?.name === 'Blocks' && l.inwardIssue)
+    .map((l) => l.inwardIssue.key)
+    .filter((k) => typeof k === 'string');
+}
 
 // Matches the Epic's "T-Shirt Size" Jira field (customfield_10269, a select list) against
 // SprintFlow's own T-shirt size scale. Returns undefined if the field is empty or holds a
@@ -480,6 +491,108 @@ resolver.define('updateEpicPlanningVersion', async (req) => {
   if (!res.ok) {
     const body = await res.text();
     console.error(`[SprintFlow] updateEpicPlanningVersion failed (${res.status}):`, body.slice(0, 500));
+  }
+  return { ok: res.ok };
+});
+
+// Sprint field is an array of sprint objects (multiple entries mean rollover); only the
+// last entry reflects what the issue is currently planned for.
+function mapSprintNames(sprintField) {
+  return (Array.isArray(sprintField) ? sprintField : [])
+    .map((s) => s?.name)
+    .filter((n) => typeof n === 'string');
+}
+
+function mapDependencyCandidate(i) {
+  return {
+    issueKey: i.key,
+    summary: i.fields?.summary ?? i.key,
+    projectKey: i.fields?.project?.key,
+    teamName: i.fields?.customfield_10001?.name ?? i.fields?.customfield_10001?.value ?? null,
+    suggestedSize: mapTshirtSize(i.fields?.customfield_10269),
+    planningVersions: mapPlanningVersions(i.fields?.customfield_10212),
+    storyPoints: typeof i.fields?.customfield_10032 === 'number' ? i.fields.customfield_10032 : undefined,
+    sprintNames: mapSprintNames(i.fields?.customfield_10020),
+  };
+}
+
+const DEPENDENCY_CANDIDATE_FIELDS = [
+  'summary',
+  'project',
+  'customfield_10001',
+  'customfield_10269',
+  'customfield_10212',
+  'customfield_10032',
+  'customfield_10020',
+];
+
+resolver.define('searchDependencyCandidates', async (req) => {
+  const { query, excludeIssueKey, issueTypes } = req.payload;
+  if (!query || query.trim().length < 2) return [];
+  const escaped = query.trim().replace(/"/g, '\\"');
+  const types = Array.isArray(issueTypes) && issueTypes.length > 0 ? issueTypes : ['Epic'];
+  const typeClause = `issuetype in (${types.map((t) => `"${t}"`).join(',')})`;
+  const jql = `${typeClause} AND (summary ~ "${escaped}*" OR key = "${escaped}") ORDER BY updated DESC`;
+
+  const res = await api.asUser().requestJira(route`/rest/api/3/search/jql`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jql, fields: DEPENDENCY_CANDIDATE_FIELDS, maxResults: 20 }),
+  });
+  const data = await res.json();
+  return (data.issues ?? [])
+    .filter((i) => i.key !== excludeIssueKey)
+    .map(mapDependencyCandidate);
+});
+
+resolver.define('getIssuesByKeys', async (req) => {
+  const keys = [...new Set(req.payload?.issueKeys ?? [])].filter(Boolean);
+  if (!keys.length) return [];
+  const jql = `key in (${keys.map((k) => `"${k}"`).join(',')})`;
+
+  const res = await api.asUser().requestJira(route`/rest/api/3/search/jql`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jql, fields: DEPENDENCY_CANDIDATE_FIELDS, maxResults: keys.length }),
+  });
+  const data = await res.json();
+  return (data.issues ?? []).map(mapDependencyCandidate);
+});
+
+resolver.define('updateDependencyLink', async (req) => {
+  const { blockedIssueKey, blockerIssueKey, mode } = req.payload;
+  if (!blockedIssueKey || !blockerIssueKey) return { ok: false };
+
+  if (mode === 'remove') {
+    const res = await api.asUser().requestJira(
+      route`/rest/api/3/issue/${blockedIssueKey}?fields=issuelinks`,
+    );
+    const data = await res.json();
+    const link = (data.fields?.issuelinks ?? []).find(
+      (l) => l.type?.name === 'Blocks' && l.inwardIssue?.key === blockerIssueKey,
+    );
+    if (!link) return { ok: true }; // already gone
+    const delRes = await api.asUser().requestJira(route`/rest/api/3/issueLink/${link.id}`, {
+      method: 'DELETE',
+    });
+    if (!delRes.ok) {
+      console.error(`[SprintFlow] updateDependencyLink remove failed (${delRes.status})`);
+    }
+    return { ok: delRes.ok };
+  }
+
+  const res = await api.asUser().requestJira(route`/rest/api/3/issueLink`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      type: { name: 'Blocks' },
+      inwardIssue: { key: blockerIssueKey },
+      outwardIssue: { key: blockedIssueKey },
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    console.error(`[SprintFlow] updateDependencyLink add failed (${res.status}):`, body.slice(0, 500));
   }
   return { ok: res.ok };
 });

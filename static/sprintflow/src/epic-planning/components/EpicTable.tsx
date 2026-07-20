@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type {
   BacklogEpicOption,
+  DependencyCandidate,
   Epic,
   PlanningVersionOption,
   Quarter,
@@ -9,6 +10,7 @@ import type {
 } from '../types/quarter';
 import { TSHIRT_LABELS, TSHIRT_SIZE_OPTIONS } from '../types/quarter';
 import { useQuarterStore } from '../stores/quarterStore';
+import { DependencyCandidateBadges, DependencySearchBox } from '../../components/DependencyPicker';
 
 interface Props {
   teamId: string;
@@ -16,6 +18,10 @@ interface Props {
   backlogEpics: BacklogEpicOption[];
   quarterOptions: PlanningVersionOption[];
   onAssignPlanningVersion: (issueKey: string, option: PlanningVersionOption, mode: 'add' | 'remove') => void;
+  onSyncDependencyLink: (blockedIssueKey: string, blockerIssueKey: string, mode: 'add' | 'remove') => void;
+  onSearchDependencies: (query: string, excludeIssueKey?: string) => Promise<DependencyCandidate[]>;
+  onResolveExternalIssues: (issueKeys: string[]) => void;
+  externalDependencyInfo: Record<string, DependencyCandidate>;
 }
 
 const RISK_COLORS: Record<RiskLevel, string> = {
@@ -106,6 +112,10 @@ interface EpicRowProps {
   backlogEpics: BacklogEpicOption[];
   planningOption?: PlanningVersionOption;
   onAssignPlanningVersion: (issueKey: string, option: PlanningVersionOption, mode: 'add' | 'remove') => void;
+  onSyncDependencyLink: (blockedIssueKey: string, blockerIssueKey: string, mode: 'add' | 'remove') => void;
+  onSearchDependencies: (query: string, excludeIssueKey?: string) => Promise<DependencyCandidate[]>;
+  onResolveExternalIssues: (issueKeys: string[]) => void;
+  externalDependencyInfo: Record<string, DependencyCandidate>;
 }
 
 function EpicRow({
@@ -118,6 +128,10 @@ function EpicRow({
   backlogEpics,
   planningOption,
   onAssignPlanningVersion,
+  onSyncDependencyLink,
+  onSearchDependencies,
+  onResolveExternalIssues,
+  externalDependencyInfo,
 }: EpicRowProps) {
   const updateEpic = useQuarterStore((s) => s.updateEpic);
   const removeEpic = useQuarterStore((s) => s.removeEpic);
@@ -353,6 +367,9 @@ function EpicRow({
                         ? [...epic.dependencies, other.id]
                         : epic.dependencies.filter((d) => d !== other.id);
                       updateEpic(teamId, quarter.id, epic.id, { dependencies: deps });
+                      if (epic.issueKey && other.issueKey) {
+                        onSyncDependencyLink(epic.issueKey, other.issueKey, e.target.checked ? 'add' : 'remove');
+                      }
                     }}
                     className="accent-indigo-600"
                   />
@@ -361,6 +378,52 @@ function EpicRow({
               );
             })}
           </div>
+
+          {epic.dependencies.filter((depId) => !otherEpics.some((o) => o.id === depId)).length > 0 && (
+            <div className="flex flex-wrap gap-2 mt-2">
+              {epic.dependencies
+                .filter((depId) => !otherEpics.some((o) => o.id === depId))
+                .map((depKey) => {
+                  const info = externalDependencyInfo[depKey];
+                  return (
+                    <div
+                      key={depKey}
+                      className="flex items-center gap-1.5 text-xs rounded border border-purple-200 bg-purple-50 text-purple-800 px-2 py-1"
+                    >
+                      <span className="font-medium">{info?.issueKey ?? depKey}</span>
+                      {info && <span className="text-purple-600 truncate max-w-[16rem]">— {info.summary}</span>}
+                      {info && <DependencyCandidateBadges candidate={info} />}
+                      <button
+                        onClick={() => {
+                          const deps = epic.dependencies.filter((d) => d !== depKey);
+                          updateEpic(teamId, quarter.id, epic.id, { dependencies: deps });
+                          if (epic.issueKey) onSyncDependencyLink(epic.issueKey, depKey, 'remove');
+                        }}
+                        className="opacity-60 hover:opacity-100 shrink-0"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  );
+                })}
+            </div>
+          )}
+
+          {epic.issueKey && (
+            <DependencySearchBox
+              excludeIssueKey={epic.issueKey}
+              onSearchDependencies={onSearchDependencies}
+              onSelect={(candidate) => {
+                if (!epic.dependencies.includes(candidate.issueKey)) {
+                  updateEpic(teamId, quarter.id, epic.id, {
+                    dependencies: [...epic.dependencies, candidate.issueKey],
+                  });
+                }
+                if (epic.issueKey) onSyncDependencyLink(epic.issueKey, candidate.issueKey, 'add');
+                onResolveExternalIssues([candidate.issueKey]);
+              }}
+            />
+          )}
         </div>
       )}
 
@@ -387,6 +450,10 @@ export default function EpicTable({
   backlogEpics,
   quarterOptions,
   onAssignPlanningVersion,
+  onSyncDependencyLink,
+  onSearchDependencies,
+  onResolveExternalIssues,
+  externalDependencyInfo,
 }: Props) {
   const addEpic = useQuarterStore((s) => s.addEpic);
 
@@ -414,6 +481,10 @@ export default function EpicTable({
               backlogEpics={backlogEpics}
               planningOption={planningOption}
               onAssignPlanningVersion={onAssignPlanningVersion}
+              onSyncDependencyLink={onSyncDependencyLink}
+              onSearchDependencies={onSearchDependencies}
+              onResolveExternalIssues={onResolveExternalIssues}
+              externalDependencyInfo={externalDependencyInfo}
             />
           ))}
         </div>

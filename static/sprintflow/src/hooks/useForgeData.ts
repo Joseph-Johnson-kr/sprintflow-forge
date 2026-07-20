@@ -6,6 +6,7 @@ import type {
   BoardStatusConfig,
   CycleTimes,
   CycleTimeSettings,
+  DependencyCandidate,
   DetailedCycleTimes,
   MemberRole,
   SprintOption,
@@ -60,6 +61,7 @@ export function useForgeData() {
   const setSprintStartDay = useTeamStore((s) => s.setSprintStartDay);
   const setCycleTimes = useTeamStore((s) => s.setCycleTimes);
   const setDetailedCycleTimes = useTeamStore((s) => s.setDetailedCycleTimes);
+  const updateStory = useTeamStore((s) => s.updateStory);
   const teams = useTeamStore((s) => s.teams);
   const selectedTeamId = useTeamStore((s) => s.selectedTeamId);
 
@@ -72,6 +74,9 @@ export function useForgeData() {
   const [boardStatuses, setBoardStatuses] = useState<BoardStatusConfig[]>([]);
   const [cycleTimeSettings, setCycleTimeSettingsState] = useState<CycleTimeSettings>(DEFAULT_CYCLE_TIME_SETTINGS);
   const [recalculating, setRecalculating] = useState(false);
+  const [externalDependencyInfo, setExternalDependencyInfo] = useState<
+    Record<string, DependencyCandidate>
+  >({});
 
   // Refs so callbacks always have the latest values without stale closures
   const storyOverridesRef = useRef<Record<string, Partial<Story>>>({});
@@ -80,6 +85,7 @@ export function useForgeData() {
   const teamNameRef = useRef<string>('');
   const teamIdRef = useRef<string | null>(null);
   const cycleTimeSettingsRef = useRef<CycleTimeSettings>(DEFAULT_CYCLE_TIME_SETTINGS);
+  const externalDependencyInfoRef = useRef<Record<string, DependencyCandidate>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -376,6 +382,54 @@ export function useForgeData() {
     };
   }, [flushSave]);
 
+  // Resolves raw issue keys (external dependency chips) into displayable summaries,
+  // caching results so a key already resolved is never re-fetched.
+  const resolveExternalIssues = useCallback((issueKeys: string[]) => {
+    const unresolved = issueKeys.filter((k) => !externalDependencyInfoRef.current[k]);
+    if (!unresolved.length) return;
+    call<DependencyCandidate[]>('getIssuesByKeys', { issueKeys: unresolved })
+      .then((results) => {
+        if (!results?.length) return;
+        setExternalDependencyInfo((prev) => {
+          const next = { ...prev };
+          for (const r of results) next[r.issueKey] = r;
+          externalDependencyInfoRef.current = next;
+          return next;
+        });
+      })
+      .catch((err) => console.error('SprintFlow: failed to resolve external dependency issues', err));
+  }, []);
+
+  const searchStoryDependencies = useCallback(
+    (query: string, excludeIssueKey?: string) =>
+      call<DependencyCandidate[]>('searchDependencyCandidates', {
+        query,
+        excludeIssueKey,
+        issueTypes: ['Story', 'Bug', 'Spike'],
+      }),
+    [],
+  );
+
+  // Fire-and-forget write-back to Jira's Blocks issue links, with an optimistic local
+  // patch to the story's blockedByIssueKeys so reconciliation reflects the change immediately.
+  const syncStoryDependencyLink = useCallback(
+    (blockedIssueKey: string, blockerIssueKey: string, mode: 'add' | 'remove') => {
+      call('updateDependencyLink', { blockedIssueKey, blockerIssueKey, mode }).catch((err) =>
+        console.error('SprintFlow: failed to update dependency link in Jira', err),
+      );
+      if (!selectedTeamId) return;
+      const team = teams.find((t) => t.id === selectedTeamId);
+      const story = team?.backlog.find((s) => s.issueKey === blockedIssueKey);
+      if (!story) return;
+      const blockedByIssueKeys =
+        mode === 'add'
+          ? [...new Set([...story.blockedByIssueKeys, blockerIssueKey])]
+          : story.blockedByIssueKeys.filter((k) => k !== blockerIssueKey);
+      updateStory(selectedTeamId, blockedIssueKey, { blockedByIssueKeys });
+    },
+    [selectedTeamId, teams, updateStory],
+  );
+
   return {
     loading,
     teamName,
@@ -389,5 +443,9 @@ export function useForgeData() {
     applyPhaseSettings,
     recalculateCycleTimes,
     recalculating,
+    externalDependencyInfo,
+    resolveExternalIssues,
+    searchStoryDependencies,
+    syncStoryDependencyLink,
   };
 }

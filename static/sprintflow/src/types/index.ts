@@ -35,6 +35,24 @@ export interface Story {
   override: boolean;
   overrideCells: StoryStatus[];
   dependencies: string[];
+  /** Issue keys of Stories/Bugs/Spikes/Epics that Jira's "Blocks" issue links say block this Story. */
+  blockedByIssueKeys: string[];
+}
+
+/** A Jira issue (any project/team) found via dependency search or resolved from a raw issue key. */
+export interface DependencyCandidate {
+  issueKey: string;
+  summary: string;
+  projectKey?: string;
+  teamName?: string | null;
+  /** Epic T-shirt size, when the candidate is an Epic and the field is set. */
+  suggestedSize?: string;
+  /** Values of the Epic "Planning Version" field, when the candidate is an Epic. */
+  planningVersions: string[];
+  /** Story points, when the candidate is a Story/Bug/Spike with that field set. */
+  storyPoints?: number;
+  /** Sprint name(s) the candidate is/was assigned to; the last entry is its current sprint. */
+  sprintNames: string[];
 }
 
 export interface Team {
