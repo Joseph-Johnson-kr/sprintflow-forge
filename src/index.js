@@ -59,6 +59,7 @@ function mapIssue(issue) {
   return {
     issueKey: issue.key,
     summary: issue.fields.summary ?? '',
+    type: issue.fields?.issuetype?.name,
     storyPoints: issue.fields.customfield_10032 ?? 0,
     startDay: 1,
     rollover: isRollover,
@@ -545,8 +546,8 @@ resolver.define('searchDependencyCandidates', async (req) => {
     .map(mapDependencyCandidate);
 });
 
-resolver.define('getIssuesByKeys', async (req) => {
-  const keys = [...new Set(req.payload?.issueKeys ?? [])].filter(Boolean);
+async function fetchDependencyCandidatesByKeys(issueKeys) {
+  const keys = [...new Set(issueKeys ?? [])].filter(Boolean);
   if (!keys.length) return [];
   const jql = `key in (${keys.map((k) => `"${k}"`).join(',')})`;
 
@@ -557,6 +558,10 @@ resolver.define('getIssuesByKeys', async (req) => {
   });
   const data = await res.json();
   return (data.issues ?? []).map(mapDependencyCandidate);
+}
+
+resolver.define('getIssuesByKeys', async (req) => {
+  return fetchDependencyCandidatesByKeys(req.payload?.issueKeys);
 });
 
 resolver.define('updateDependencyLink', async (req) => {
@@ -595,6 +600,174 @@ resolver.define('updateDependencyLink', async (req) => {
     console.error(`[SprintFlow] updateDependencyLink add failed (${res.status}):`, body.slice(0, 500));
   }
   return { ok: res.ok };
+});
+
+resolver.define('updateRelatesLink', async (req) => {
+  const { issueKeyA, issueKeyB, mode } = req.payload;
+  if (!issueKeyA || !issueKeyB) return { ok: false };
+
+  if (mode === 'remove') {
+    const res = await api.asUser().requestJira(
+      route`/rest/api/3/issue/${issueKeyA}?fields=issuelinks`,
+    );
+    const data = await res.json();
+    const link = (data.fields?.issuelinks ?? []).find(
+      (l) =>
+        l.type?.name === 'Relates' &&
+        (l.inwardIssue?.key === issueKeyB || l.outwardIssue?.key === issueKeyB),
+    );
+    if (!link) return { ok: true }; // already gone
+    const delRes = await api.asUser().requestJira(route`/rest/api/3/issueLink/${link.id}`, {
+      method: 'DELETE',
+    });
+    if (!delRes.ok) {
+      console.error(`[SprintFlow] updateRelatesLink remove failed (${delRes.status})`);
+    }
+    return { ok: delRes.ok };
+  }
+
+  const res = await api.asUser().requestJira(route`/rest/api/3/issueLink`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      type: { name: 'Relates' },
+      inwardIssue: { key: issueKeyA },
+      outwardIssue: { key: issueKeyB },
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    console.error(`[SprintFlow] updateRelatesLink add failed (${res.status}):`, body.slice(0, 500));
+  }
+  return { ok: res.ok };
+});
+
+resolver.define('getBacklogAssistantData', async (req) => {
+  const { projectKey, teamId } = req.payload;
+  if (!projectKey) return { issues: [], edges: [], truncated: false };
+
+  // teamId falls back to projectKey when no real Team field is resolved (see getTeamMembers) —
+  // only add the team filter when we have a real team ID, not that fallback placeholder.
+  const jql = teamId && teamId !== projectKey
+    ? `project = ${projectKey} AND issuetype != Sub-task AND "Team[Team]" = ${teamId} ORDER BY key ASC`
+    : `project = ${projectKey} AND issuetype != Sub-task ORDER BY key ASC`;
+  const res = await api.asUser().requestJira(route`/rest/api/3/search/jql`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      jql,
+      fields: [
+        'summary',
+        'issuetype',
+        'status',
+        'priority',
+        'assignee',
+        'customfield_10032',
+        'customfield_10020',
+        'parent',
+        'issuelinks',
+      ],
+      maxResults: 200,
+    }),
+  });
+  const data = await res.json();
+  const rawIssues = data.issues ?? [];
+
+  const issues = rawIssues.map((i) => {
+    const parent = i.fields?.parent;
+    // Approximates the CSV's literal "Epic Name" field: the parent's own summary, only when the parent is an Epic.
+    const parentIsEpic = parent?.fields?.issuetype?.name === 'Epic';
+    const sprintNames = mapSprintNames(i.fields?.customfield_10020);
+    return {
+      key: i.key,
+      summary: i.fields?.summary ?? '',
+      type: i.fields?.issuetype?.name ?? '',
+      status: i.fields?.status?.name ?? '',
+      priority: i.fields?.priority?.name ?? '',
+      assignee: i.fields?.assignee?.displayName ?? '',
+      storyPoints: i.fields?.customfield_10032 != null ? String(i.fields.customfield_10032) : '',
+      sprint: sprintNames.length ? sprintNames[sprintNames.length - 1] : '',
+      parentKey: parent?.key ?? '',
+      parentSummary: parent?.fields?.summary ?? '',
+      epicName: parentIsEpic ? parent?.fields?.summary ?? '' : '',
+    };
+  });
+
+  const localKeys = new Set(rawIssues.map((i) => i.key));
+  const edgeSet = new Set();
+  const edges = [];
+  const externalKeys = new Set();
+
+  for (const i of rawIssues) {
+    for (const link of i.fields?.issuelinks ?? []) {
+      if (link.type?.name === 'Blocks') {
+        // inwardIssue on i means i is the blocked side (the inward issue is the blocker);
+        // outwardIssue on i means i is the blocker (the outward issue is blocked). Both must
+        // be checked — an external blocked issue never gets fetched to supply its own inward entry.
+        let from;
+        let to;
+        if (link.inwardIssue) {
+          from = link.inwardIssue.key;
+          to = i.key;
+        } else if (link.outwardIssue) {
+          from = i.key;
+          to = link.outwardIssue.key;
+        } else {
+          continue;
+        }
+        if (from === to) continue;
+        const id = `blocks:${from}->${to}`;
+        if (edgeSet.has(id)) continue;
+        edgeSet.add(id);
+        edges.push({ id, from, to, type: 'blocks' });
+        if (!localKeys.has(from)) externalKeys.add(from);
+        if (!localKeys.has(to)) externalKeys.add(to);
+      } else if (link.type?.name === 'Relates' && (link.inwardIssue || link.outwardIssue)) {
+        const other = (link.inwardIssue ?? link.outwardIssue).key;
+        if (other === i.key) continue;
+        const [a, b] = [i.key, other].sort();
+        const id = `relates:${a}->${b}`;
+        if (edgeSet.has(id)) continue;
+        edgeSet.add(id);
+        edges.push({ id, from: a, to: b, type: 'relates' });
+        if (!localKeys.has(other)) externalKeys.add(other);
+      }
+    }
+  }
+
+  const externalIssues = externalKeys.size ? await fetchDependencyCandidatesByKeys([...externalKeys]) : [];
+
+  const truncated = typeof data.total === 'number' ? rawIssues.length < data.total : false;
+
+  console.log(
+    `[SprintFlow] getBacklogAssistantData: ${issues.length} issues, ${edges.length} edges, ` +
+      `${externalIssues.length} external issues for project ${projectKey}`,
+  );
+  return { issues, edges, externalIssues, truncated };
+});
+
+resolver.define('loadBacklogAssistantSession', async (req) => {
+  const { projectKey } = req.payload;
+  if (!projectKey) return null;
+  try {
+    const session = await storage.get(`backlog-assistant-session:${projectKey}`);
+    return session ?? null;
+  } catch (err) {
+    console.error('[SprintFlow] loadBacklogAssistantSession failed:', err);
+    return null;
+  }
+});
+
+resolver.define('saveBacklogAssistantSession', async (req) => {
+  const { projectKey, session } = req.payload;
+  if (!projectKey) return { ok: false };
+  try {
+    await storage.set(`backlog-assistant-session:${projectKey}`, session);
+    return { ok: true };
+  } catch (err) {
+    console.error('[SprintFlow] saveBacklogAssistantSession failed:', err);
+    return { ok: false };
+  }
 });
 
 resolver.define('getEpicStatuses', async (req) => {

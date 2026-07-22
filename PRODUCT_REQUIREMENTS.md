@@ -8,14 +8,15 @@
 
 ## 1. Executive Summary
 
-SprintFlow is an Atlassian Forge app that adds a **SprintFlow Tools** action to the Jira Cloud backlog view, with two panels reachable from a submenu:
+SprintFlow is an Atlassian Forge app that adds a **SprintFlow Tools** action to the Jira Cloud backlog view, with three panels reachable from a submenu:
 
 - **SprintFlow** gives engineering managers a day-by-day visualization of how the currently selected sprint's work will flow through Dev and QA, grounded in the team's own historical cycle time data and daily capacity — instead of relying on velocity alone.
 - **Epic Planning** (see Section 9) gives teams a quarter-by-quarter forecast of whether their T-shirt-sized Epic commitments fit realistic sprint dev capacity across a full year, before committing to a roadmap.
+- **Backlog Assistant** (see Section 10) gives teams a dependency-graph view of an entire project's backlog, surfacing which work unblocks the most other work, grouping stories under Objectives, and checking whether a sprint's scope is enough to fully close out an Objective.
 
-Both panels run *inside* Jira as Forge Custom UI panels (`jira:backlogAction`). They read sprint, board, team, and issue data directly from the Jira Cloud site they're installed on — no CSV export/import step, no separate login, and no data leaving Atlassian's infrastructure. SprintFlow's cycle times are calculated automatically from each team's own closed-issue history (time spent in each workflow status), removing the need to manually estimate Dev/QA duration per story-point value.
+All three panels run *inside* Jira as Forge Custom UI panels (`jira:backlogAction`). They read sprint, board, team, and issue data directly from the Jira Cloud site they're installed on — no CSV export/import step, no separate login, and no data leaving Atlassian's infrastructure. SprintFlow's cycle times are calculated automatically from each team's own closed-issue history (time spent in each workflow status), removing the need to manually estimate Dev/QA duration per story-point value.
 
-Configuration for both panels is saved via Forge's managed app storage, scoped per Jira project, and persists across sessions without any user account or backend to maintain.
+Configuration for all three panels is saved via Forge's managed app storage, scoped per Jira project, and persists across sessions without any user account or backend to maintain.
 
 ---
 
@@ -178,8 +179,9 @@ The Flow Grid is the core forecast output. It is a matrix of **stories (rows) ×
 
 ```
 Jira Backlog → "SprintFlow Tools" action → submenu
-├── SprintFlow      — opens the sprint-forecasting Forge panel
-└── Epic Planning   — opens the quarterly Epic-forecasting Forge panel (Section 9)
+├── SprintFlow         — opens the sprint-forecasting Forge panel
+├── Epic Planning      — opens the quarterly Epic-forecasting Forge panel (Section 9)
+└── Backlog Assistant  — opens the dependency-graph backlog panel (Section 10)
 
 SprintFlow Panel Nav (top bar)
 ├── Sprint   — Flow Grid + Backlog Table for the selected sprint
@@ -188,9 +190,13 @@ SprintFlow Panel Nav (top bar)
 Epic Planning Panel Nav (top bar controls)
 ├── Year selector       — auto-provisions that year's Q1–Q4 quarters
 └── Quarter selector    — Q1 / Q2 / Q3 / Q4 / All (Section 9.7)
+
+Backlog Assistant Panel Nav (toolbar)
+├── Graph canvas (default) / Priority Queue — toggle between the dependency graph and a ranked list view
+└── Objective Checker — modal, opened from the toolbar
 ```
 
-There is no multi-team sidebar and no home/how-to page — each panel opens directly into its primary working view (Sprint view for SprintFlow, the selected quarter for Epic Planning) for the current board's team.
+There is no multi-team sidebar and no home/how-to page — each panel opens directly into its primary working view (Sprint view for SprintFlow, the selected quarter for Epic Planning, the dependency graph for Backlog Assistant) for the current board's project.
 
 ---
 
@@ -377,20 +383,144 @@ A fifth option ("All") in the quarter selector renders all four of the selected 
 | Feature | Rationale for Exclusion |
 |---|---|
 | Cross-quarter scheduling / a unified timeline model | The "All" view is a read-only, render-time merge over four independently-computed per-quarter forecasts, not a shared scheduling engine — deliberately avoided to keep each quarter's forecast simple and independently resettable |
-| Writing planning data back to Jira Epics | Same read-only-against-Jira principle as SprintFlow (Section 11) — Epic sizing, dev allocation, risk, and notes data lives only in Epic Planning's own storage. The one exception is dependency links, which write to Jira as real "Blocks" issue links (Section 9.4) |
+| Writing planning data back to Jira Epics | Same read-only-against-Jira principle as SprintFlow (Section 12) — Epic sizing, dev allocation, risk, and notes data lives only in Epic Planning's own storage. The one exception is dependency links, which write to Jira as real "Blocks" issue links (Section 9.4) |
 | Automatic Epic rollover | The tool does not move an unfinished Epic into the next quarter automatically; a user re-selects the same Epic in the next quarter's Epic list manually |
 | Historical/versioned quarters | Resetting or overwriting a quarter's data is destructive and unrecoverable (no undo/history), consistent with the confirmation-gated Reset Quarter action |
 
 ---
 
-## 10. Non-Functional Requirements
+## 10. Backlog Assistant Module
+
+### 10.1 Overview
+
+Backlog Assistant is the third panel reachable from the **SprintFlow Tools** backlog action (`backlog-assistant` submenu item — see `manifest.yml`). Where SprintFlow and Epic Planning forecast capacity against time, Backlog Assistant visualizes the *shape* of a project's backlog itself: every Story/Task/Bug/Spike/Risk/Epic/Objective in the project as a node in a dependency graph, connected by real Jira "Blocks" and "Relates" issue links, so a team can see at a glance which work is blocking the most other work and which larger Objectives are closest to being fully delivered.
+
+Backlog Assistant reads and writes real Jira data directly — it has no CSV import/export step (a CSV-driven prototype existed during initial development and was fully replaced by live Jira reads/writes; only the optional local "Export/Import Work" JSON save file, Section 10.4, remains).
+
+### 10.2 Users
+
+| Role | Description |
+|---|---|
+| **Scrum Master / Backlog Owner** | Uses the dependency graph during backlog refinement to identify which items unblock the most downstream work, group related items under Objectives, and check whether a candidate sprint's scope would fully close out an Objective before committing to it. |
+
+Backlog Assistant is scoped to the **current Jira project** (from `view.getContext()`), not a single team or board — Objectives are meant to span a project's initiative-level work, which may cut across multiple teams' boards.
+
+### 10.3 Goals
+
+- Surface which backlog items **unblock the most other work**, so refinement prioritizes items with the highest downstream leverage rather than relying on priority field alone
+- Let teams group related Stories/Tasks/Bugs/Spikes under **Objectives** and see at a glance how close each Objective is to being fully deliverable
+- Let a team check whether a **specific sprint's scope is sufficient to fully close out an Objective**, before sprint planning locks in that scope
+- Read and write **real Jira dependency data** ("Blocks" and "Relates" issue links) rather than maintaining a separate, disconnected model of the backlog
+- Persist the graph's layout and any rank-override annotations **per project, in Forge storage**, so returning to the panel (or opening it as a different user) reflects the last session's arrangement
+
+### 10.4 Functional Requirements
+
+**Data scope and loading**
+
+- On open, Backlog Assistant fetches **every non-Sub-task issue in the current project** (`getBacklogAssistantData`), regardless of status — Done/Closed issues are intentionally included in the fetched dataset (not filtered out at the JQL level) so the Objective Checker (Section 10.6) can still see which Objective members are already complete
+- If the project has more issues than a single fetch can return, a **truncation banner** is shown so users know the graph may be incomplete rather than silently missing items
+- If the initial load fails (e.g., a transient Jira/Forge gateway error), the panel shows an error message with a **Retry** button rather than requiring the panel to be closed and reopened
+
+**Graph canvas**
+
+- Each issue renders as a node, color-coded by issue type (Epic, Objective, Story, Task, Spike, Risk, Bug, Sub-task) via `vis-network`; node border/shadow additionally indicate a rank override (amber) or a newly-added issue since the last session (cyan)
+- "Blocks" issue links render as directed edges (arrow pointing from blocker to blocked item); "Relates" links do not render as graph edges — they instead express Objective-to-child membership (Section 10.4's "Objectives" below)
+- Issues referenced by a dependency edge but outside the current project's fetched batch render as read-only, dashed-border "ghost" nodes with a distinct label, so a cross-project dependency is still visible without being editable
+- **Add Dependency mode**: toggled from the toolbar, lets a user click a source node then a target node to create a new "Blocks" edge, written immediately to Jira as a real issue link
+- **Right-click context menu** on a node offers Remove Dependency (for an edge under the cursor), Reverse Dependency direction, and Rank Override actions. Because Jira's site-wide `style-src` Content-Security-Policy silently drops DOM-positioned popups (`style={{left,top}}`), this menu — and Priority Queue's row menu — are drawn directly onto a `<canvas>` element rather than as positioned DOM nodes (see `utils/canvasContextMenu.ts`)
+- Removing a dependency shows a transient **Undo** toast; clicking Undo re-creates the same Jira link
+- **Objectives**: an `Objective`-type issue can have other issues assigned as members (via a "Relates" link); an Objective's members render clustered near it and can be collapsed to a single node (hiding members) or expanded, individually or all at once
+- **Rank Override**: a user can flag any non-Objective node with a free-text reason, visually distinguishing it (amber border/shadow, star prefix in its label) from the graph's default type/priority-driven visual hierarchy — this is an annotation only, not written back to Jira
+- **Fit** re-centers/re-scales the canvas to show the whole graph
+
+**Priority Queue**
+
+- An alternate, list-based view (toggled from the toolbar in place of the Sidebar) that ranks all non-Objective, non-Done issues by how many other items they transitively unblock (direct + indirect, via a breadth-first walk of "Blocks" edges), most-unblocking first
+- Each row shows the issue's type, priority, and how many items it directly/indirectly unblocks and is blocked by, plus a plain-language explanation sentence (`pqExplanation`) suitable for reading aloud in a refinement session
+- Rows support the same right-click context menu actions as the graph canvas (via the same canvas-drawn menu pattern, Section 10.4's context menu note), rendered on its own overlay `<canvas>` since Priority Queue is a plain DOM list, not a `vis-network` canvas
+
+**Sidebar**
+
+- Shown by default (in place of Priority Queue) with an Issue Detail view for the currently-selected node: summary, type, status, priority, story points, parent/Epic, sprint, and its dependency edges
+
+**Objective Checker**
+
+- A modal, opened from the toolbar, that lets a user pick a sprint (from the board's active/future sprints, via the shared `getSprintList` resolver) and checks each Objective in the project against that sprint's issue set plus already-Done issues
+- An Objective is reported **"Ready to complete this sprint"** if every one of its members is either already Done or present in the selected sprint; **"Already complete"** if every member is already Done; otherwise it's omitted (some member is neither Done nor in the selected sprint, so the Objective isn't achievable by that sprint alone)
+- Each "Ready to complete" row is expandable to show its individual members and whether each is Completed or In Sprint
+
+**Session persistence and Export/Import**
+
+- Node canvas positions, rank-override reasons, and which Objectives are collapsed are debounce-saved (500ms) to Forge app storage, scoped per project (`backlog-assistant-session:{projectKey}`) — shared across users/devices viewing the same project, not per-browser
+- A `knownIssueKeys` baseline is stored alongside session data; on each load, any fetched issue key not in the stored baseline is flagged **new** (a "…" prefix and cyan highlight on its node) until the next load re-baselines it to the current full key set
+- **Export Work** downloads the current node positions, rank overrides, and collapsed-Objective state as a local JSON file; **Import Work** restores that same shape from a previously-exported file — this is a convenience snapshot/restore mechanism for local layout state, not a substitute for the live Forge-storage session
+
+### 10.5 Dependency Write-Back
+
+Unlike SprintFlow and Epic Planning's dependency links (Sections 6.4, 9.4), Backlog Assistant writes back **two** Jira issue link types:
+
+- **"Blocks"** — created/deleted via `updateDependencyLink` (shared with SprintFlow/Epic Planning) whenever a user adds, removes, or reverses a dependency edge on the graph or in the Priority Queue's context menu
+- **"Relates"** — created/deleted via a Backlog Assistant-specific `updateRelatesLink` resolver whenever a user assigns or unassigns an issue to/from an Objective
+
+Edge edits are optimistic: the local graph updates immediately, and the Jira write happens in the background. If reversing an edge's direction fails partway (the removal of the old link succeeds but creating the reversed link fails), the local state reverts to the original edge and the failure is logged.
+
+### 10.6 Data Architecture
+
+**Storage key:** `backlog-assistant-session:{projectKey}` (Forge app storage, `storage:app` scope) — a separate key from SprintFlow's and Epic Planning's own storage, so the three modules' data never collide.
+
+**Core data model:**
+
+```typescript
+BAIssue {
+  key, summary, type, status, priority, assignee
+  storyPoints, sprint
+  parentKey, parentSummary, epicName
+}
+
+BAEdge {
+  id, from, to
+  type: 'blocks' | 'relates'
+}
+
+RankOverride { reason }
+
+SessionData {
+  nodePositions: Record<issueKey, { x, y }>
+  collapsedObjectives: string[]
+  rankOverrides: Record<issueKey, RankOverride>
+}
+```
+
+**Resolvers added for Backlog Assistant:**
+
+| Resolver | Purpose |
+|---|---|
+| `getBacklogAssistantData` | Project-scoped Jira query for all non-Sub-task issues (any status) plus their "Blocks"/"Relates" edges; flags `truncated` if the project has more issues than could be fetched |
+| `updateRelatesLink` | Creates or deletes a Jira "Relates" issue link between two issues, used to assign/unassign Objective membership |
+| `loadBacklogAssistantSession` / `saveBacklogAssistantSession` | Reads/writes the project-scoped session blob (positions, rank overrides, collapsed state, known-issue-key baseline) to Forge storage |
+
+`getSprintList` and `getSprintIssues` (Section 8.3) are reused unchanged for the Objective Checker's sprint dropdown and sprint-membership check. `updateDependencyLink` (Section 8.3) is reused unchanged for "Blocks" edges. `getTeamMembers` is **not** used — Backlog Assistant's data scope is the whole project, not a single team.
+
+### 10.7 Out of Scope (Backlog Assistant–specific)
+
+| Feature | Rationale for Exclusion |
+|---|---|
+| CSV backlog upload | An early prototype used CSV import/export; fully replaced by live Jira reads/writes once Phase 2 shipped — no manual export/import step needed to load data |
+| Team- or board-scoped data | Objectives are meant to span a project's initiative-level work across teams; scoping to a single team's board would hide cross-team Objective members |
+| Writing sizing/priority/status back to Jira | Backlog Assistant is read-only against issue fields — only dependency links ("Blocks", "Relates") are written back (Section 10.5) |
+| Cross-quarter or capacity forecasting | That's SprintFlow's and Epic Planning's role; Backlog Assistant answers "what unblocks what" and "is this Objective coverable," not "does this fit our capacity" |
+| DOM-positioned popups/menus | Jira's `style-src` CSP silently drops inline-styled positioned elements on this site; all positioned context menus are canvas-drawn instead (Section 10.4) |
+
+---
+
+## 11. Non-Functional Requirements
 
 | Requirement | Specification |
 |---|---|
 | **Platform** | Atlassian Forge Custom UI app (`jira:backlogAction` module), runs inside Jira Cloud |
 | **Backend** | Forge resolver functions (Node.js) — no self-hosted server or infrastructure to maintain |
 | **Persistence** | Forge app storage, scoped per Jira project; no localStorage |
-| **Permissions** | Least-privilege Forge scopes: read access to Jira issues/boards/sprints/projects/accounts, plus app-scoped storage. The only write access to Jira is `write:issue-link:jira`, used exclusively to create/delete "Blocks" issue links for Story and Epic dependencies (Sections 6.4, 9.4) — no other Jira issue data is modified |
+| **Permissions** | Least-privilege Forge scopes: read access to Jira issues/boards/sprints/projects/accounts, plus app-scoped storage. The only write access to Jira is `write:issue-link:jira`, used exclusively to create/delete "Blocks" and "Relates" issue links for Story, Epic, and Backlog Assistant dependencies (Sections 6.4, 9.4, 10.5) — no other Jira issue data is modified |
 | **Data residency** | All Jira data access happens via Forge's managed runtime on Atlassian's infrastructure; no data is sent to any third-party service |
 | **Performance** | Forecast computation is synchronous and in-memory once data is fetched; must be imperceptible for teams of ≤ 20 members and ≤ 100 backlog issues |
 | **State management** | Zustand (frontend), Forge storage (backend persistence) |
@@ -401,7 +531,7 @@ A fifth option ("All") in the quarter selector renders all four of the selected 
 
 ---
 
-## 11. Out of Scope
+## 12. Out of Scope
 
 | Feature | Rationale for Exclusion |
 |---|---|
@@ -413,15 +543,17 @@ A fifth option ("All") in the quarter selector renders all four of the selected 
 | Gantt chart or timeline export | Out of scope for current planning workflow |
 | Mobile / responsive layout | Primary use is on a laptop during a planning session, inside the Jira web app |
 
-See Section 9.7 for Epic Planning–specific out-of-scope items.
+See Section 9.7 for Epic Planning–specific out-of-scope items, and Section 10.7 for Backlog Assistant–specific out-of-scope items.
 
 ---
 
-## 12. Open Questions / Future Considerations
+## 13. Open Questions / Future Considerations
 
 - **Epic Planning ↔ Jira write-back:** Epic Planning writes back only dependency links (Section 9.4); sizing, dev allocation, risk, notes, and computed schedule dates remain local-only. A future version could optionally sync computed schedule dates back to Jira Epic fields for visibility outside the app.
 - **Epic Planning capacity data entry:** Member absences are entered manually per sprint per quarter. A future version could source planned time off from an existing Jira/HR data source where available, reducing manual upkeep.
 - **Multi-board team detection:** The current Team field-based detection assumes issues in a project consistently carry the same Team value. Projects that intentionally span multiple teams within one board are not explicitly modeled beyond the existing team-scoped fallback logic.
 - **Cross-sprint rollover tracking:** Rollover is currently a per-issue, per-load flag (detected from the Sprint field) rather than a tracked history; a future version could show how many times a story has rolled over.
+- **Backlog Assistant CSP inconsistency:** Other still-inline-styled spots in Backlog Assistant (e.g., the Priority Queue panel's resizable width, type/status color swatches) have not been reported broken despite the same CSP restriction that forced canvas-drawn context menus (Section 10.4) — the inconsistency is unexplained and left as-is until/unless it surfaces as a real defect.
+- **Backlog Assistant Objective write-back:** Only dependency links ("Blocks", "Relates") are written back to Jira (Section 10.5); rank-override reasons and node layout remain local to Forge storage. A future version could consider surfacing rank overrides in Jira (e.g., as a comment or label) for visibility outside the app.
 - **Confidence interval display:** The cycle time model currently reports a single average per status/point value. A future version could show variance (e.g., min/median/max) to better convey estimate uncertainty.
 - **Write-back to Jira:** Beyond dependency links (Section 6.4), no other SprintFlow-derived data (adjusted start days, phase assignments) is written back to Jira. A future version could optionally sync select fields for visibility outside the app.

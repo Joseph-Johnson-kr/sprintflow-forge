@@ -11,6 +11,8 @@
           title: SprintFlow
         - key: epic-planning
           title: Epic Planning
+        - key: backlog-assistant
+          title: Backlog Assistant
   function:
     - key: resolver
       handler: index.handler

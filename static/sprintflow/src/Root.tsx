@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { view } from '@forge/bridge';
 import App from './App';
 import EpicPlanningApp from './epic-planning/EpicPlanningApp';
+import BacklogAssistantApp from './backlog-assistant/BacklogAssistantApp';
 
 export default function Root() {
   const [action, setAction] = useState<string | null>(null);
@@ -24,5 +25,11 @@ export default function Root() {
   }, []);
 
   if (!ready) return null;
-  return action === 'epic-planning' ? <EpicPlanningApp /> : <App />;
+  return action === 'epic-planning' ? (
+    <EpicPlanningApp />
+  ) : action === 'backlog-assistant' ? (
+    <BacklogAssistantApp />
+  ) : (
+    <App />
+  );
 }
