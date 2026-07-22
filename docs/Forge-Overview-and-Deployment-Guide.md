@@ -234,7 +234,7 @@ flowchart TD
    forge deploy -e staging       # staging
    forge deploy -e production    # production
    ```
-   Deploying to `staging`/`production` is safe to do at any time regardless of what's in `development` — it only affects sites that have been installed against that specific environment (Section 5's Environments table). As of this writing, no site is installed on `staging` or `production`, so deploying there has zero effect on any live Jira site until an install is deliberately run against it.
+   Deploying to `staging`/`production` is safe to do at any time regardless of what's in `development` — it only affects sites that have been installed against that specific environment (Section 5's Environments table). As of this writing, code has been deployed to `staging` and `production`, but no site is installed on either, so those deploys have zero effect on any live Jira site until an install is deliberately run against one.
 4. **If you deployed to `development`, confirm the live site actually picked up the new version** (see the important gotcha below):
    ```
    forge install list
@@ -274,10 +274,10 @@ Beyond that one issue-link exception, it cannot read other apps' data, modify is
 | Jira site | Forge environment | Install status |
 |---|---|---|
 | `kroger-stage.atlassian.net` | `development` | Installed, `Up-to-date` |
-| *(none)* | `staging` | Not installed anywhere |
-| *(none)* | `production` | Not installed anywhere |
+| *(none)* | `staging` | Code deployed, not installed anywhere |
+| *(none)* | `production` | Code deployed, not installed anywhere |
 
-Run `forge install list` to refresh this at any time. Because no site is installed on `staging`/`production`, deploying to those environments is decoupled from `kroger-stage.atlassian.net` — safe to publish in-progress work there ahead of a real production rollout.
+Run `forge install list` to refresh this at any time. Because no site is installed on `staging`/`production`, deploying to those environments is decoupled from `kroger-stage.atlassian.net` — safe to publish in-progress work there ahead of a real production rollout. As of this writing, code has been deployed to both `staging` and `production` (including the Backlog Assistant module), but `kroger-stage.atlassian.net` remains installed only against `development` — a `staging`/`production` deploy never changes what an already-installed site is running.
 
 ---
 
