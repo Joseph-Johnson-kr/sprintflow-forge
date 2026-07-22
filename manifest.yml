@@ -5,7 +5,7 @@
       resolver:
         function: resolver
       viewportSize: max
-      title: SprintFlow Tools
+      title: Team Tools
       actions:
         - key: sprintflow
           title: SprintFlow

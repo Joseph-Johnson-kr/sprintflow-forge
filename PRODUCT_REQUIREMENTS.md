@@ -8,7 +8,7 @@
 
 ## 1. Executive Summary
 
-SprintFlow is an Atlassian Forge app that adds a **SprintFlow Tools** action to the Jira Cloud backlog view, with three panels reachable from a submenu:
+SprintFlow is an Atlassian Forge app that adds a **Team Tools** action to the Jira Cloud backlog view, with three panels reachable from a submenu:
 
 - **SprintFlow** gives engineering managers a day-by-day visualization of how the currently selected sprint's work will flow through Dev and QA, grounded in the team's own historical cycle time data and daily capacity — instead of relying on velocity alone.
 - **Epic Planning** (see Section 9) gives teams a quarter-by-quarter forecast of whether their T-shirt-sized Epic commitments fit realistic sprint dev capacity across a full year, before committing to a roadmap.
@@ -178,7 +178,7 @@ The Flow Grid is the core forecast output. It is a matrix of **stories (rows) ×
 ## 7. Navigation & Information Architecture
 
 ```
-Jira Backlog → "SprintFlow Tools" action → submenu
+Jira Backlog → "Team Tools" action → submenu
 ├── SprintFlow         — opens the sprint-forecasting Forge panel
 ├── Epic Planning      — opens the quarterly Epic-forecasting Forge panel (Section 9)
 └── Backlog Assistant  — opens the dependency-graph backlog panel (Section 10)
@@ -290,7 +290,7 @@ SprintOption {
 
 ### 9.1 Overview
 
-Epic Planning is the second panel reachable from the **SprintFlow Tools** backlog action (`epic-planning` submenu item, distinct from the `sprintflow` item — see `manifest.yml`). Where SprintFlow forecasts a single sprint's day-by-day Dev/QA flow at the story level, Epic Planning forecasts Epic-level commitments at the quarter/sprint grain across a full year, so a team can see whether their roadmap fits realistic sprint dev capacity before drilling into per-sprint planning.
+Epic Planning is the second panel reachable from the **Team Tools** backlog action (`epic-planning` submenu item, distinct from the `sprintflow` item — see `manifest.yml`). Where SprintFlow forecasts a single sprint's day-by-day Dev/QA flow at the story level, Epic Planning forecasts Epic-level commitments at the quarter/sprint grain across a full year, so a team can see whether their roadmap fits realistic sprint dev capacity before drilling into per-sprint planning.
 
 ### 9.2 Users
 
@@ -393,7 +393,7 @@ A fifth option ("All") in the quarter selector renders all four of the selected 
 
 ### 10.1 Overview
 
-Backlog Assistant is the third panel reachable from the **SprintFlow Tools** backlog action (`backlog-assistant` submenu item — see `manifest.yml`). Where SprintFlow and Epic Planning forecast capacity against time, Backlog Assistant visualizes the *shape* of a project's backlog itself: every Story/Task/Bug/Spike/Risk/Epic/Objective in the project as a node in a dependency graph, connected by real Jira "Blocks" and "Relates" issue links, so a team can see at a glance which work is blocking the most other work and which larger Objectives are closest to being fully delivered.
+Backlog Assistant is the third panel reachable from the **Team Tools** backlog action (`backlog-assistant` submenu item — see `manifest.yml`). Where SprintFlow and Epic Planning forecast capacity against time, Backlog Assistant visualizes the *shape* of a project's backlog itself: every Story/Task/Bug/Spike/Risk/Epic/Objective in the project as a node in a dependency graph, connected by real Jira "Blocks" and "Relates" issue links, so a team can see at a glance which work is blocking the most other work and which larger Objectives are closest to being fully delivered.
 
 Backlog Assistant reads and writes real Jira data directly — it has no CSV import/export step (a CSV-driven prototype existed during initial development and was fully replaced by live Jira reads/writes; only the optional local "Export/Import Work" JSON save file, Section 10.4, remains).
 
